@@ -6,7 +6,7 @@ const multer = require('multer');
 const path = require('path');
 const { parseOmnitracXLS } = require('./parser');
 const { geocodeRoutes } = require('./geocoding');
-const { optimizeRoutes } = require('./routeOptimizer');
+const { optimizeRoutes, optimizeAllRoutes } = require('./routeOptimizer');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -62,6 +62,21 @@ app.delete('/api/cache/clear', (req, res) => {
       error: 'Failed to clear cache', 
       details: error.message 
     });
+  }
+});
+
+// Optimize all routes with in-process concurrency control
+app.post('/api/optimize-all', async (req, res) => {
+  const { routeData, fileName, depotLocation, submitConcurrency, pollConcurrency } = req.body;
+  try {
+    if (!routeData || !routeData.routes) {
+      return res.status(400).json({ error: 'Missing route data' });
+    }
+    const result = await optimizeAllRoutes(routeData, fileName, process.env, depotLocation, { submitConcurrency, pollConcurrency });
+    res.json(result);
+  } catch (error) {
+    console.error('Error optimizing all routes:', error);
+    res.status(500).json({ error: 'Failed to optimize all routes', details: error.message });
   }
 });
 

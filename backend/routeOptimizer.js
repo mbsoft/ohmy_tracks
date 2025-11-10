@@ -198,4 +198,108 @@ function convertToEpoch(time, dateTimeStr) {
   return new Date(`${dateTimeStr.split(' ')[0]} ${time}`).getTime() / 1000;
 }
 
-module.exports = { optimizeRoutes };
+// ---------------- Concurrency helpers & optimizer -----------------
+function createLimiter(limit) {
+  let active = 0;
+  const queue = [];
+  const runNext = () => {
+    if (active >= limit) return;
+    const item = queue.shift();
+    if (!item) return;
+    active++;
+    Promise.resolve()
+      .then(item.fn)
+      .then((res) => { active--; item.resolve(res); runNext(); })
+      .catch((err) => { active--; item.reject(err); runNext(); });
+  };
+  return (fn) => new Promise((resolve, reject) => { queue.push({ fn, resolve, reject }); runNext(); });
+}
+
+async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClient, options = {}) {
+  const routes = routeData?.routes || [];
+  const apiKey = env.NEXTBILLION_API_KEY || 'opensesame';
+  const depotLocation = depotLocationFromClient || determineDepotLocation(fileName);
+  if (!depotLocation) throw new Error('Depot location is required for route optimization');
+
+  const submitConcurrency = options.submitConcurrency || 12; // keep < 25/2
+  const pollConcurrency = options.pollConcurrency || 8;
+  const submitLimit = createLimiter(submitConcurrency);
+  const pollLimit = createLimiter(pollConcurrency);
+
+  const routeTasks = routes.map((route) => (async () => {
+    // Build locations/jobs as in optimizeRoutes
+    const locations = [];
+    const indexByKey = new Map();
+    const addLocation = (key, latlng) => {
+      if (!indexByKey.has(key)) {
+        indexByKey.set(key, locations.length);
+        locations.push(latlng);
+      }
+      return indexByKey.get(key);
+    };
+    const depotIndex = addLocation('depot', depotLocation);
+
+    const baseJobs = [];
+    for (const delivery of route.deliveries) {
+      const lat = delivery?.geocode?.latitude ?? delivery?.latitude;
+      const lng = delivery?.geocode?.longitude ?? delivery?.longitude;
+      if (lat == null || lng == null) continue;
+      const locIdx = addLocation(`stop-${delivery.stopNumber}`, `${lat},${lng}`);
+      const [twStart, twEnd] = deriveTimeWindowEpochs(
+        delivery.openCloseTime,
+        route.routeStartTime,
+        delivery.arrival,
+        delivery.depart
+      );
+      baseJobs.push({
+        id: `${delivery.stopNumber}-${route.routeId}`,
+        description: `${delivery.stopNumber}|${delivery.locationName}|${delivery.address}|${delivery.arrival}-${delivery.depart}`,
+        service: convertToSecondsSafe(delivery.service),
+        location_index: locIdx,
+        time_windows: [[twStart, twEnd]],
+      });
+    }
+
+    const vehicle = {
+      id: route.routeId,
+      description: `${route.routeId}-${route.driverName}-${route.deliveries.length}`,
+      time_window: [new Date(route.routeStartTime).getTime() / 1000, new Date(route.routeEndTime).getTime() / 1000],
+      start_index: depotIndex,
+      end_index: depotIndex,
+      layover_config: { max_continuous_time: 18000, layover_duration: 1800, include_service_time: true }
+    };
+
+    let seq = 1;
+    const jobsInSeq = baseJobs.map(j => ({ ...j, sequence_order: seq++ }));
+
+    const requestBodySeq = { locations: { location: locations }, vehicles: [vehicle], jobs: jobsInSeq, options: { objective: { travel_cost: 'duration' } }, description: `Optimization (in-sequence) for ${route.routeId}` };
+    const requestBodyNoSeq = { locations: { location: locations }, vehicles: [vehicle], jobs: baseJobs,   options: { objective: { travel_cost: 'duration' } }, description: `Optimization (no sequence) for ${route.routeId}` };
+
+    // Submit both runs under submit limiter
+    const submitSeq = await submitLimit(() => axios.post(`https://api.nextbillion.io/optimization/v2?key=${apiKey}`, requestBodySeq, { headers: { 'Content-Type': 'application/json' } }));
+    const submitNo  = await submitLimit(() => axios.post(`https://api.nextbillion.io/optimization/v2?key=${apiKey}`, requestBodyNoSeq, { headers: { 'Content-Type': 'application/json' } }));
+
+    const requestIdInSeq = submitSeq?.data?.id || submitSeq?.data?.requestId;
+    const requestIdNoSeq = submitNo?.data?.id || submitNo?.data?.requestId;
+    if (!requestIdInSeq || !requestIdNoSeq) throw new Error('Failed to get request IDs');
+
+    const pollSeq = pollLimit(() => pollOptimizationStatus(requestIdInSeq, apiKey));
+    const pollNo  = pollLimit(() => pollOptimizationStatus(requestIdNoSeq, apiKey));
+    const [resultInSeq, resultNoSeq] = await Promise.all([pollSeq, pollNo]);
+
+    return {
+      routeId: route.routeId,
+      requestIds: { inSequence: requestIdInSeq, noSequence: requestIdNoSeq },
+      result: resultNoSeq,
+      summaries: {
+        inSequence: resultInSeq?.result?.summary,
+        noSequence: resultNoSeq?.result?.summary,
+      }
+    };
+  })());
+
+  const results = await Promise.all(routeTasks);
+  return { routes: results };
+}
+
+module.exports = { optimizeRoutes, optimizeAllRoutes };
