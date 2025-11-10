@@ -106,8 +106,6 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
     // Geocode all deliveries
     const apiKey = process.env.NEXTBILLION_API_KEY || 'opensesame';
     const geocodedData = await geocodeRoutes(parsedData, apiKey);
-    // Ensure geocoding is complete before proceeding to optimization
-    // await optimizeRoutes(parsedData, req.file.originalname, process.env);
 
     // Update status to 'complete'
     parsedData.routes.forEach(route => route.status = 'complete');
@@ -121,6 +119,15 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
       details: error.message
     });
   }
+});
+
+// Serve frontend build (Render serves a single web service)
+const frontendDir = path.join(__dirname, '../frontend/dist');
+app.use(express.static(frontendDir));
+// SPA fallback for non-API routes
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api/')) return next();
+  res.sendFile(path.join(frontendDir, 'index.html'));
 });
 
 app.listen(PORT, () => {
