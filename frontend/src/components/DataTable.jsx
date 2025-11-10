@@ -20,10 +20,26 @@ function formatDistance(meters) {
   return `${miles.toFixed(1)} mi`;
 }
 
+function toFixed6(num) {
+  const n = Number(num);
+  if (!Number.isFinite(n)) return '';
+  return n.toFixed(6);
+}
+
+function formatLatLngString(value) {
+  if (!value) return '';
+  const parts = String(value).split(',');
+  if (parts.length !== 2) return value;
+  const lat = toFixed6(parts[0].trim());
+  const lng = toFixed6(parts[1].trim());
+  if (lat === '' || lng === '') return value;
+  return `${lat},${lng}`;
+}
+
 function depotFromFileName(fileName) {
   if (!fileName) return '';
-  if (fileName.startsWith('ATL')) return '33.807970,-84.43696';
-  if (fileName.startsWith('NB Mays')) return '39.44214,-74.70332';
+  if (fileName.startsWith('ATL')) return formatLatLngString('33.807970,-84.436960');
+  if (fileName.startsWith('NB Mays')) return formatLatLngString('39.442140,-74.703320');
   return '';
 }
 
@@ -40,12 +56,14 @@ function DataTable({ routes, handleOptimizeRoute, optimizingRouteIds, fileName }
   };
 
   const getDefaultStartLocation = (route) => {
+    // Prefer depot inferred from fileName
     const depot = depotFromFileName(fileName);
     if (depot) return depot;
+    // Fallback to first geocoded stop
     if (route.deliveries && route.deliveries.length > 0) {
       const firstStop = route.deliveries[0];
       if (firstStop.geocode?.success && firstStop.geocode.latitude && firstStop.geocode.longitude) {
-        return `${firstStop.geocode.latitude},${firstStop.geocode.longitude}`;
+        return formatLatLngString(`${firstStop.geocode.latitude},${firstStop.geocode.longitude}`);
       }
     }
     return '';
@@ -62,6 +80,13 @@ function DataTable({ routes, handleOptimizeRoute, optimizingRouteIds, fileName }
     setRouteStartLocations((prev) => ({
       ...prev,
       [routeIndex]: value,
+    }));
+  };
+
+  const handleStartLocationBlur = (routeIndex) => {
+    setRouteStartLocations((prev) => ({
+      ...prev,
+      [routeIndex]: formatLatLngString(prev[routeIndex])
     }));
   };
 
@@ -147,111 +172,104 @@ function DataTable({ routes, handleOptimizeRoute, optimizingRouteIds, fileName }
                           e.stopPropagation();
                           handleStartLocationChange(routeIndex, e.target.value);
                         }}
+                        onBlur={() => handleStartLocationBlur(routeIndex)}
                         onClick={(e) => e.stopPropagation()}
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="latitude,longitude"
+                        className="w-40 md:w-48 px-2 py-1 text-xs font-mono border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="lat,lng"
+                        inputMode="decimal"
                       />
                     </div>
                   </div>
-                  {/* Summary table */}
+                  {/* Summary table - centered and larger font */}
                   {route.summary && (
-                    <table className="text-xs text-gray-700 border border-gray-200 rounded">
-                      <thead>
-                        <tr className="bg-gray-100">
-                          <th className="px-2 py-1 text-left">Type</th>
-                          <th className="px-2 py-1 text-left">Request</th>
-                          <th className="px-2 py-1 text-left">Distance</th>
-                          <th className="px-2 py-1 text-left">Drive</th>
-                          <th className="px-2 py-1 text-left">Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td className="px-2 py-1">sequenced</td>
-                          <td className="px-2 py-1">{route.summary.requestIds?.inSequence || '—'}</td>
-                          <td className="px-2 py-1">{formatDistance(route.summary.summaries?.inSequence?.distance || 0)}</td>
-                          <td className="px-2 py-1">{formatDuration(route.summary.summaries?.inSequence?.duration || 0)}</td>
-                          <td className="px-2 py-1">{formatDuration((route.summary.summaries?.inSequence?.duration || 0) + (route.summary.summaries?.inSequence?.service || 0))}</td>
-                        </tr>
-                        <tr>
-                          <td className="px-2 py-1">non-sequenced</td>
-                          <td className="px-2 py-1">{route.summary.requestIds?.noSequence || route.summary.requestId || '—'}</td>
-                          <td className="px-2 py-1">{formatDistance(route.summary.summaries?.noSequence?.distance || route.summary.result?.summary?.distance || 0)}</td>
-                          <td className="px-2 py-1">{formatDuration(route.summary.summaries?.noSequence?.duration || route.summary.result?.summary?.duration || 0)}</td>
-                          <td className="px-2 py-1">{formatDuration(((route.summary.summaries?.noSequence?.duration || route.summary.result?.summary?.duration || 0) + (route.summary.summaries?.noSequence?.service || route.summary.result?.summary?.service || 0)))}</td>
-                        </tr>
-                      </tbody>
-                    </table>
+                    <div className="flex-1 flex justify-center">
+                      <table className="min-w-[900px] text-sm md:text-base text-gray-800 border border-gray-200 rounded shadow-sm">
+                        <thead>
+                          <tr className="bg-gray-100">
+                            <th className="px-3 md:px-4 py-2 text-left">Type</th>
+                            <th className="px-3 md:px-4 py-2 text-left">Request</th>
+                            <th className="px-3 md:px-4 py-2 text-left">Distance</th>
+                            <th className="px-3 md:px-4 py-2 text-left whitespace-nowrap">Drive</th>
+                            <th className="px-3 md:px-4 py-2 text-left whitespace-nowrap">Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td className="px-3 md:px-4 py-2">sequenced</td>
+                            <td className="px-3 md:px-4 py-2">{route.summary.requestIds?.inSequence || '—'}</td>
+                            <td className="px-3 md:px-4 py-2">{formatDistance(route.summary.summaries?.inSequence?.distance || 0)}</td>
+                            <td className="px-3 md:px-4 py-2 whitespace-nowrap">{formatDuration(route.summary.summaries?.inSequence?.duration || 0)}</td>
+                            <td className="px-3 md:px-4 py-2 whitespace-nowrap">{formatDuration((route.summary.summaries?.inSequence?.duration || 0) + (route.summary.summaries?.inSequence?.service || 0))}</td>
+                          </tr>
+                          <tr>
+                            <td className="px-3 md:px-4 py-2">optimized</td>
+                            <td className="px-3 md:px-4 py-2">{route.summary.requestIds?.noSequence || route.summary.requestId || '—'}</td>
+                            <td className="px-3 md:px-4 py-2">{formatDistance(route.summary.summaries?.noSequence?.distance || route.summary.result?.summary?.distance || 0)}</td>
+                            <td className="px-3 md:px-4 py-2 whitespace-nowrap">{formatDuration(route.summary.summaries?.noSequence?.duration || route.summary.result?.summary?.duration || 0)}</td>
+                            <td className="px-3 md:px-4 py-2 whitespace-nowrap">{formatDuration(((route.summary.summaries?.noSequence?.duration || route.summary.result?.summary?.duration || 0) + (route.summary.summaries?.noSequence?.service || route.summary.result?.summary?.service || 0)))}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
                   )}
                 </div>
               </div>
 
-              {route.summary?.result?.summary && (
-                <div className="px-6 pt-2">
-                  <div className="flex items-center space-x-2">
-                    <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-800">
-                      Request: {route.summary.requestId || route.summary.id || '—'}
-                    </span>
-                    <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800">
-                      Distance: {formatDistance(route.summary.result.summary.distance)}
-                    </span>
-                    <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">
-                      Drive Time: {formatDuration(route.summary.result.summary.duration)}
-                    </span>
-                    <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-purple-100 text-purple-800">
-                      Total Time: {formatDuration((route.summary.result.summary.duration || 0) + (route.summary.result.summary.service || 0))}
-                    </span>
-                  </div>
+              {/* Route Start/End Times */}
+              <div className="px-6 pb-2">
+                <div className="text-sm text-gray-600">
+                  <span className="mr-6">Start: {routes[routeIndex].routeStartTime || 'N/A'}</span>
+                  <span>End: {routes[routeIndex].routeEndTime || 'N/A'}</span>
+                </div>
+              </div>
+
+              {/* Deliveries Table */}
+              {expandedRoutes[routeIndex] && (
+                <div className="overflow-x-auto bg-blue-50 rounded-lg p-3">
+                  <table className="min-w-full divide-y divide-blue-200 text-base">
+                    <thead className="bg-blue-100">
+                      <tr>
+                        <th className="px-5 py-3 text-left text-sm font-medium text-blue-900 uppercase tracking-wider">Stop #</th>
+                        <th className="px-5 py-3 text-left text-sm font-medium text-blue-900 uppercase tracking-wider">Location ID</th>
+                        <th className="px-5 py-3 text-left text-sm font-medium text-blue-900 uppercase tracking-wider">Location Name</th>
+                        <th className="px-5 py-3 text-left text-sm font-medium text-blue-900 uppercase tracking-wider">Address</th>
+                        <th className="px-5 py-3 text-left text-sm font-medium text-blue-900 uppercase tracking-wider">Arrival</th>
+                        <th className="px-5 py-3 text-left text-sm font-medium text-blue-900 uppercase tracking-wider">Depart</th>
+                        <th className="px-5 py-3 text-left text-sm font-medium text-blue-900 uppercase tracking-wider">NB_Arrival</th>
+                        <th className="px-5 py-3 text-left text-sm font-medium text-blue-900 uppercase tracking-wider">NB_Depart</th>
+                        <th className="px-5 py-3 text-left text-sm font-medium text-blue-900 uppercase tracking-wider">Time Window</th>
+                        <th className="px-5 py-3 text-left text-sm font-medium text-blue-900 uppercase tracking-wider">Service</th>
+                        <th className="px-5 py-3 text-left text-sm font-medium text-blue-900 uppercase tracking-wider">Weight</th>
+                        <th className="px-5 py-3 text-left text-sm font-medium text-blue-900 uppercase tracking-wider">Pallets</th>
+                        <th className="px-5 py-3 text-left text-sm font-medium text-blue-900 uppercase tracking-wider">Phone</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-blue-50 divide-y divide-blue-200">
+                      {routes[routeIndex].deliveries.map((delivery, deliveryIndex) => (
+                        <tr key={deliveryIndex} className="hover:bg-blue-100 transition-colors">
+                          <td className="px-5 py-3 whitespace-nowrap text-blue-900">
+                            {delivery.stopNumber || '-'}
+                            {delivery.NB_ORDER ? `(${delivery.NB_ORDER})` : ''}
+                          </td>
+                          <td className="px-5 py-3 whitespace-nowrap text-blue-900">{delivery.locationId || '-'}</td>
+                          <td className="px-5 py-3 text-blue-900">{delivery.locationName || '-'}</td>
+                          <td className="px-5 py-3 text-blue-900">{delivery.address || '-'}</td>
+                          <td className="px-5 py-3 whitespace-nowrap text-blue-900">{delivery.arrival || '-'}</td>
+                          <td className="px-5 py-3 whitespace-nowrap text-blue-900">{delivery.depart || '-'}</td>
+                          <td className="px-5 py-3 whitespace-nowrap text-blue-900">{delivery.NB_ARRIVAL || '-'}</td>
+                          <td className="px-5 py-3 whitespace-nowrap text-blue-900">{delivery.NB_DEPART || '-'}</td>
+                          <td className="px-5 py-3 whitespace-nowrap text-blue-900">{delivery.openCloseTime || '-'}</td>
+                          <td className="px-5 py-3 whitespace-nowrap text-blue-900">{delivery.service || '-'}</td>
+                          <td className="px-5 py-3 whitespace-nowrap text-blue-900">{delivery.weight || '-'}</td>
+                          <td className="px-5 py-3 whitespace-nowrap text-blue-900">{delivery.cube || '-'}</td>
+                          <td className="px-5 py-3 whitespace-nowrap text-blue-900">{delivery.phoneNumber || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>
-
-            {/* Deliveries Table */}
-            {expandedRoutes[routeIndex] && (
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-100">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Stop #</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Location ID</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Location Name</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Address</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Arrival</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Depart</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">NB_Arrival</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">NB_Depart</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Time Window</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Service</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Weight</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Pallets</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Phone</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {routes[routeIndex].deliveries.map((delivery, deliveryIndex) => (
-                      <tr key={deliveryIndex} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                          {delivery.stopNumber || '-'}
-                          {delivery.NB_ORDER ? `(${delivery.NB_ORDER})` : ''}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{delivery.locationId || '-'}</td>
-                        <td className="px-4 py-3 text-sm text-gray-900">{delivery.locationName || '-'}</td>
-                        <td className="px-4 py-3 text-sm text-gray-900">{delivery.address || '-'}</td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{delivery.arrival || '-'}</td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{delivery.depart || '-'}</td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{delivery.NB_ARRIVAL || '-'}</td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{delivery.NB_DEPART || '-'}</td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{delivery.openCloseTime || '-'}</td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{delivery.service || '-'}</td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{delivery.weight || '-'}</td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{delivery.cube || '-'}</td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{delivery.phoneNumber || '-'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
           </div>
         ))}
       </div>

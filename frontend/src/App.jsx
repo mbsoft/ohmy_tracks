@@ -11,6 +11,21 @@ function formatEpochToHHMM(epochSeconds) {
   return `${hh}:${mm}`;
 }
 
+function formatSecondsToHM(totalSeconds) {
+  if (!Number.isFinite(totalSeconds)) return '0m';
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.round((totalSeconds % 3600) / 60);
+  if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h`;
+  return `${minutes}m`;
+}
+
+function formatMiles(meters) {
+  if (typeof meters !== 'number') return meters || 0;
+  const miles = meters / 1609.344;
+  return `${miles.toFixed(1)} mi`;
+}
+
 function extractNbTimesAndOrder(nbResult) {
   const steps = nbResult?.result?.routes?.[0]?.steps || [];
   const timesByJobId = {};
@@ -211,11 +226,35 @@ function App() {
     }
   };
 
+  // Aggregate optimization totals across routes that have a summary
+  const aggregateTotals = (routesList) => {
+    return routesList.reduce(
+      (acc, route) => {
+        const inSeq = route.summary?.summaries?.inSequence;
+        const noSeq = route.summary?.summaries?.noSequence || route.summary?.result?.summary;
+        if (inSeq) {
+          acc.seq.distance += inSeq.distance || 0;
+          acc.seq.duration += inSeq.duration || 0;
+          acc.seq.service += inSeq.service || 0;
+        }
+        if (noSeq) {
+          acc.no.distance += noSeq.distance || 0;
+          acc.no.duration += noSeq.duration || 0;
+          acc.no.service += noSeq.service || 0;
+        }
+        return acc;
+      },
+      { seq: { distance: 0, duration: 0, service: 0 }, no: { distance: 0, duration: 0, service: 0 } }
+    );
+  };
+
+  const totals = data?.routes ? aggregateTotals(data.routes) : null;
+
   return (
     <div className="min-h-screen bg-gray-100">
       {/* Header */}
       <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
+        <div className="max-w-[1600px] mx-auto px-6 py-6 sm:px-8 lg:px-10">
           <div className="flex justify-between items-start">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">
@@ -253,7 +292,7 @@ function App() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
+      <main className="max-w-[1600px] mx-auto px-6 py-8 sm:px-8 lg:px-10">
         {/* Cache Clear Message */}
         {cacheMessage && (
           <div className={`mb-8 ${cacheMessage.type === 'success' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'} border rounded-lg p-4`}>
@@ -326,7 +365,7 @@ function App() {
           <div className="space-y-6">
             {/* Summary Stats */}
             <div className="bg-white rounded-lg shadow p-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 justify-items-center">
                 <div className="text-center">
                   <p className="text-sm font-medium text-gray-600">Total Routes</p>
                   <p className="mt-2 text-3xl font-bold text-gray-900">
@@ -347,63 +386,32 @@ function App() {
                       : 0}
                   </p>
                 </div>
-                {data.geocodingStats && (
-                  <>
-                    <div className="text-center">
-                      <p className="text-sm font-medium text-gray-600">Geocoded</p>
-                      <p className="mt-2 text-3xl font-bold text-green-600">
-                        {data.geocodingStats.succeeded}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        {data.geocodingStats.failed} failed
-                      </p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-sm font-medium text-gray-600">Cache Hit Rate</p>
-                      <p className="mt-2 text-3xl font-bold text-blue-600">
-                        {data.geocodingStats.total > 0
-                          ? Math.round((data.geocodingStats.cacheHits / data.geocodingStats.total) * 100)
-                          : 0}%
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        {data.geocodingStats.cacheSize} in cache
-                      </p>
-                    </div>
-                  </>
-                )}
               </div>
-              
-              {/* Geocoding Pass Breakdown */}
-              {data.geocodingStats && data.geocodingStats.pass1 && data.geocodingStats.pass2 && (
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="bg-blue-50 rounded-lg p-4">
-                    <h3 className="text-sm font-semibold text-blue-900 mb-2">Pass 1: Address-based</h3>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-blue-700">Processed:</span>
-                      <span className="font-medium text-blue-900">{data.geocodingStats.pass1.processed}</span>
-                    </div>
-                    <div className="flex justify-between text-sm mt-1">
-                      <span className="text-blue-700">Succeeded:</span>
-                      <span className="font-medium text-green-700">{data.geocodingStats.pass1.succeeded}</span>
-                    </div>
+
+              {/* Aggregate Optimization Totals */}
+              {totals && (
+                <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-gray-50 rounded-lg p-4 text-center">
+                    <p className="text-sm font-medium text-gray-600">Sequenced</p>
+                    <p className="mt-2 text-2xl font-bold text-gray-900">{formatMiles(totals.seq.distance)}</p>
+                    <p className="mt-1 text-sm text-gray-600">Distance</p>
+                    <p className="mt-2 text-2xl font-bold text-gray-900">{formatSecondsToHM(totals.seq.duration)}</p>
+                    <p className="mt-1 text-sm text-gray-600">Drive Time</p>
+                    <p className="mt-2 text-2xl font-bold text-gray-900">{formatSecondsToHM((totals.seq.duration || 0) + (totals.seq.service || 0))}</p>
+                    <p className="mt-1 text-sm text-gray-600">Total Time</p>
                   </div>
-                  <div className="bg-purple-50 rounded-lg p-4">
-                    <h3 className="text-sm font-semibold text-purple-900 mb-2">Pass 2: Location Name (Proximity)</h3>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-purple-700">Processed:</span>
-                      <span className="font-medium text-purple-900">{data.geocodingStats.pass2.processed}</span>
-                    </div>
-                    <div className="flex justify-between text-sm mt-1">
-                      <span className="text-purple-700">Succeeded:</span>
-                      <span className="font-medium text-green-700">{data.geocodingStats.pass2.succeeded}</span>
-                    </div>
-                    <div className="flex justify-between text-sm mt-1">
-                      <span className="text-purple-700">Failed:</span>
-                      <span className="font-medium text-red-700">{data.geocodingStats.pass2.failed}</span>
-                    </div>
+                  <div className="bg-gray-50 rounded-lg p-4 text-center">
+                    <p className="text-sm font-medium text-gray-600">Optimized</p>
+                    <p className="mt-2 text-2xl font-bold text-gray-900">{formatMiles(totals.no.distance)}</p>
+                    <p className="mt-1 text-sm text-gray-600">Distance</p>
+                    <p className="mt-2 text-2xl font-bold text-gray-900">{formatSecondsToHM(totals.no.duration)}</p>
+                    <p className="mt-1 text-sm text-gray-600">Drive Time</p>
+                    <p className="mt-2 text-2xl font-bold text-gray-900">{formatSecondsToHM((totals.no.duration || 0) + (totals.no.service || 0))}</p>
+                    <p className="mt-1 text-sm text-gray-600">Total Time</p>
                   </div>
                 </div>
               )}
+
               <div className="mt-6 flex justify-end">
                 <button
                   onClick={handleExportCSV}

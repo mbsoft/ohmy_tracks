@@ -134,7 +134,7 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
       locations: { location: locations },
       vehicles: [vehicle],
       jobs: jobsInSeq,
-      options: { objective: { travel_cost: 'duration' } },
+      options: { routing: { mode: 'truck', traffic_timestamp: 1688115600},objective: { travel_cost: 'duration' } },
       description: `Optimization (in-sequence) for ${route.routeId}`
     };
     const { result: resultInSeq, requestId: requestIdInSeq } = await submitAndPoll(requestBodySeq, apiKey);
@@ -144,7 +144,7 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
       locations: { location: locations },
       vehicles: [vehicle],
       jobs: baseJobs,
-      options: { objective: { travel_cost: 'duration' } },
+      options: { routing: { mode: 'truck', traffic_timestamp: 1688115600},objective: { travel_cost: 'duration' } },
       description: `Optimization (no sequence) for ${route.routeId}`
     };
     const { result: resultNoSeq, requestId: requestIdNoSeq } = await submitAndPoll(requestBodyNoSeq, apiKey);
