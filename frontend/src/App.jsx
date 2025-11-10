@@ -3,6 +3,47 @@ import FileUpload from './components/FileUpload';
 import DataTable from './components/DataTable';
 import { exportToCSV } from './utils/csvExport';
 
+function formatEpochToHHMM(epochSeconds) {
+  if (epochSeconds == null) return '';
+  const d = new Date(epochSeconds * 1000);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+function extractNbTimesAndOrder(nbResult) {
+  const steps = nbResult?.result?.routes?.[0]?.steps || [];
+  const timesByJobId = {};
+  const orderByJobId = {};
+  let order = 0;
+  steps.forEach((s) => {
+    const jobId = s.id || s.job || s.task_id;
+    const type = (s.type || s.activity || '').toString().toLowerCase();
+    if (jobId) {
+      // Only increment order for job steps (skip start/end/layover if they don't have job id)
+      order += 1;
+      orderByJobId[jobId] = order;
+    }
+    const arrival = s.arrival ?? s.start_time ?? s.time ?? s.start;
+    const departure = s.departure ?? s.end_time ?? (arrival != null ? arrival + (s.service || 0) + (s.setup || 0) + (s.waiting_time || 0) : undefined);
+    if (jobId) timesByJobId[jobId] = { arrival, departure };
+  });
+  return { timesByJobId, orderByJobId, steps };
+}
+
+function extractLayoverTimes(steps) {
+  if (!Array.isArray(steps)) return null;
+  const lay = steps.find((s) => {
+    const t = (s.type || s.activity || '').toString().toLowerCase();
+    const desc = (s.description || s.name || '').toString().toLowerCase();
+    return t.includes('layover') || t.includes('break') || desc.includes('layover') || desc.includes('break');
+  });
+  if (!lay) return null;
+  const arrival = lay.arrival ?? lay.start_time ?? lay.time ?? lay.start;
+  const departure = lay.departure ?? lay.end_time ?? (arrival != null ? arrival + (lay.service || 0) + (lay.setup || 0) + (lay.waiting_time || 0) : undefined);
+  return { arrival, departure };
+}
+
 function App() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -11,22 +52,13 @@ function App() {
   const [cacheMessage, setCacheMessage] = useState(null);
   const [optimizingRouteIds, setOptimizingRouteIds] = useState(new Set());
 
-  const handleOptimizeRoute = async (routeId, depotLocation) => {
-    // Build payload with only the selected route
+  const handleOptimizeRoute = async (routeId, startLocation) => {
     const selectedRoute = data?.routes?.find((r) => r.routeId === routeId);
     if (!selectedRoute) {
       console.error('Selected route not found for optimization:', routeId);
       return;
     }
 
-    // Validate depot location
-    if (!depotLocation || !depotLocation.trim()) {
-      console.error('No depot location provided for route:', routeId);
-      alert('Please enter a valid start/end location (latitude,longitude) before optimizing.');
-      return;
-    }
-
-    // Mark this route as optimizing
     setOptimizingRouteIds((prev) => {
       const next = new Set(prev);
       next.add(routeId);
@@ -37,10 +69,10 @@ function App() {
       routeId,
       routeData: { routes: [selectedRoute] },
       fileName: data?.fileName,
-      depotLocation: depotLocation,
+      depotLocation: startLocation,
     };
 
-    console.log('Optimize payload:', payload);
+    console.log('Optimize payload (frontend -> backend /api/optimize):', payload);
     try {
       const response = await fetch(`/api/optimize/${routeId}`, {
         method: 'POST',
@@ -51,21 +83,37 @@ function App() {
       });
       
       if (!response.ok) {
+        const text = await response.text();
+        console.error('Optimize API error response:', text);
         throw new Error('Failed to optimize route');
       }
 
-      const summary = await response.json();
-      // Update the route with new summary statistics
-      setData(oldData => {
-        const updatedRoutes = oldData.routes.map(route =>
-          route.routeId === routeId ? { ...route, summary } : route
-        );
+      const nbResult = await response.json();
+      const { timesByJobId, orderByJobId, steps } = extractNbTimesAndOrder(nbResult);
+      const layoverTimes = extractLayoverTimes(steps);
+
+      setData((oldData) => {
+        const updatedRoutes = oldData.routes.map((route) => {
+          if (route.routeId !== routeId) return route;
+          const updatedDeliveries = route.deliveries.map((delivery) => {
+            const jobId = `${delivery.stopNumber}-${route.routeId}`;
+            const jobTimes = timesByJobId[jobId];
+            const order = orderByJobId[jobId];
+            let NB_ARRIVAL = jobTimes?.arrival != null ? formatEpochToHHMM(jobTimes.arrival) : delivery.NB_ARRIVAL;
+            let NB_DEPART = jobTimes?.departure != null ? formatEpochToHHMM(jobTimes.departure) : delivery.NB_DEPART;
+            if (delivery.isBreak && layoverTimes) {
+              NB_ARRIVAL = layoverTimes.arrival != null ? formatEpochToHHMM(layoverTimes.arrival) : NB_ARRIVAL;
+              NB_DEPART = layoverTimes.departure != null ? formatEpochToHHMM(layoverTimes.departure) : NB_DEPART;
+            }
+            return { ...delivery, NB_ARRIVAL, NB_DEPART, NB_ORDER: order };
+          });
+          return { ...route, deliveries: updatedDeliveries, summary: nbResult };
+        });
         return { ...oldData, routes: updatedRoutes };
       });
     } catch (error) {
       console.error('Optimization error:', error);
     } finally {
-      // Unmark optimizing state for this route
       setOptimizingRouteIds((prev) => {
         const next = new Set(prev);
         next.delete(routeId);
@@ -84,7 +132,7 @@ function App() {
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minute timeout
+      const timeoutId = setTimeout(() => controller.abort(), 300000);
 
       const response = await fetch('/api/upload', {
         method: 'POST',
@@ -106,7 +154,7 @@ function App() {
       }
 
       const result = await response.json();
-      setData(result);
+      setData({ ...result, fileName: file.name });
     } catch (err) {
       if (err.name === 'AbortError') {
         setError('Request timed out. The file may be too large or contain too many addresses to geocode.');
@@ -159,7 +207,6 @@ function App() {
       console.error('Cache clear error:', err);
     } finally {
       setClearingCache(false);
-      // Auto-hide message after 5 seconds
       setTimeout(() => setCacheMessage(null), 5000);
     }
   };
@@ -383,7 +430,8 @@ function App() {
             {/* Data Table */}
             <DataTable
               routes={data.routes}
-              handleOptimizeRoute={(routeId, depotLocation) => handleOptimizeRoute(routeId, depotLocation)}
+              fileName={data.fileName}
+              handleOptimizeRoute={handleOptimizeRoute}
               optimizingRouteIds={optimizingRouteIds}
             />
           </div>

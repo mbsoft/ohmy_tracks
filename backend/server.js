@@ -67,7 +67,7 @@ app.delete('/api/cache/clear', (req, res) => {
 
 // Optimize a single route
 app.post('/api/optimize/:routeId', async (req, res) => {
-  const { routeId, routeData, fileName, depotLocation } = req.body;  // Receive all necessary data from request
+  const { routeId, routeData, fileName, depotLocation, inSequence } = req.body;  // Receive all necessary data from request
 
   try {
     if (!depotLocation) {
@@ -75,7 +75,7 @@ app.post('/api/optimize/:routeId', async (req, res) => {
     }
 
     const apiKey = process.env.NEXTBILLION_API_KEY || 'opensesame';
-    const summary = await optimizeRoutes(routeData, fileName, process.env, depotLocation);
+    const summary = await optimizeRoutes(routeData, fileName, process.env, depotLocation, inSequence);
     console.log('Optimization complete:', routeId, 'summary:', summary?.result?.summary || 'no summary');
     res.json(summary);
   } catch (error) {
