@@ -7,7 +7,7 @@ import {
 } from '@tanstack/react-table';
 
 function formatDuration(totalSeconds) {
-  if (typeof totalSeconds !== 'number') return totalSeconds;
+  if (typeof totalSeconds !== 'number' || !Number.isFinite(totalSeconds)) return '-';
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.round((totalSeconds % 3600) / 60);
   if (hours > 0) return `${hours}h ${minutes}m`;
@@ -15,7 +15,7 @@ function formatDuration(totalSeconds) {
 }
 
 function formatDistance(meters) {
-  if (typeof meters !== 'number') return meters;
+  if (typeof meters !== 'number' || !Number.isFinite(meters)) return '-';
   const miles = meters / 1609.344;
   return `${miles.toFixed(1)} mi`;
 }
@@ -181,7 +181,7 @@ function DataTable({ routes, handleOptimizeRoute, optimizingRouteIds, fileName }
                     </div>
                   </div>
                   {/* Summary table - centered and larger font */}
-                  {route.summary && (
+                  {true && (
                     <div className="flex-1 flex justify-center">
                       <table className="min-w-[900px] text-sm md:text-base text-gray-800 border border-gray-200 rounded shadow-sm">
                         <thead>
@@ -194,20 +194,34 @@ function DataTable({ routes, handleOptimizeRoute, optimizingRouteIds, fileName }
                           </tr>
                         </thead>
                         <tbody>
-                          <tr>
-                            <td className="px-3 md:px-4 py-2">sequenced</td>
-                            <td className="px-3 md:px-4 py-2">{route.summary.requestIds?.inSequence || '—'}</td>
-                            <td className="px-3 md:px-4 py-2">{formatDistance(route.summary.summaries?.inSequence?.distance || 0)}</td>
-                            <td className="px-3 md:px-4 py-2 whitespace-nowrap">{formatDuration(route.summary.summaries?.inSequence?.duration || 0)}</td>
-                            <td className="px-3 md:px-4 py-2 whitespace-nowrap">{formatDuration((route.summary.summaries?.inSequence?.duration || 0) + (route.summary.summaries?.inSequence?.service || 0))}</td>
-                          </tr>
-                          <tr>
-                            <td className="px-3 md:px-4 py-2">optimized</td>
-                            <td className="px-3 md:px-4 py-2">{route.summary.requestIds?.noSequence || route.summary.requestId || '—'}</td>
-                            <td className="px-3 md:px-4 py-2">{formatDistance(route.summary.summaries?.noSequence?.distance || route.summary.result?.summary?.distance || 0)}</td>
-                            <td className="px-3 md:px-4 py-2 whitespace-nowrap">{formatDuration(route.summary.summaries?.noSequence?.duration || route.summary.result?.summary?.duration || 0)}</td>
-                            <td className="px-3 md:px-4 py-2 whitespace-nowrap">{formatDuration(((route.summary.summaries?.noSequence?.duration || route.summary.result?.summary?.duration || 0) + (route.summary.summaries?.noSequence?.service || route.summary.result?.summary?.service || 0)))}</td>
-                          </tr>
+                          {(() => {
+                            const inSeq = route.summary?.summaries?.inSequence;
+                            const noSeq = route.summary?.summaries?.noSequence || route.summary?.result?.summary;
+                            const inSeqDistance = formatDistance(inSeq?.distance);
+                            const inSeqDrive = formatDuration(inSeq?.duration);
+                            const inSeqTotal = (typeof inSeq?.duration === 'number' && typeof inSeq?.service === 'number') ? formatDuration(inSeq.duration + inSeq.service) : '-';
+                            const noSeqDistance = formatDistance(noSeq?.distance);
+                            const noSeqDrive = formatDuration(noSeq?.duration);
+                            const noSeqTotal = (typeof noSeq?.duration === 'number' && typeof noSeq?.service === 'number') ? formatDuration(noSeq.duration + noSeq.service) : '-';
+                            return (
+                              <>
+                                <tr>
+                                  <td className="px-3 md:px-4 py-2">sequenced</td>
+                                  <td className="px-3 md:px-4 py-2">{route.summary?.requestIds?.inSequence || '—'}</td>
+                                  <td className="px-3 md:px-4 py-2">{inSeqDistance}</td>
+                                  <td className="px-3 md:px-4 py-2 whitespace-nowrap">{inSeqDrive}</td>
+                                  <td className="px-3 md:px-4 py-2 whitespace-nowrap">{inSeqTotal}</td>
+                                </tr>
+                                <tr>
+                                  <td className="px-3 md:px-4 py-2">optimized</td>
+                                  <td className="px-3 md:px-4 py-2">{route.summary?.requestIds?.noSequence || route.summary?.requestId || '—'}</td>
+                                  <td className="px-3 md:px-4 py-2">{noSeqDistance}</td>
+                                  <td className="px-3 md:px-4 py-2 whitespace-nowrap">{noSeqDrive}</td>
+                                  <td className="px-3 md:px-4 py-2 whitespace-nowrap">{noSeqTotal}</td>
+                                </tr>
+                              </>
+                            );
+                          })()}
                         </tbody>
                       </table>
                     </div>
