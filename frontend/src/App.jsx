@@ -26,6 +26,14 @@ function formatMiles(meters) {
   return `${miles.toFixed(1)} mi`;
 }
 
+// Helper formatters to render '-' when value is zero or missing
+function fmtMilesOrDash(meters) {
+  return typeof meters === 'number' && meters > 0 ? formatMiles(meters) : '-';
+}
+function fmtSecondsOrDash(seconds) {
+  return typeof seconds === 'number' && seconds > 0 ? formatSecondsToHM(seconds) : '-';
+}
+
 function extractNbTimesAndOrder(nbResult) {
   const steps = nbResult?.result?.routes?.[0]?.steps || [];
   const timesByJobId = {};
@@ -181,6 +189,56 @@ function App() {
       console.error('Upload error:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleOptimizeAll = async () => {
+    if (!data?.routes || data.routes.length === 0) return;
+    try {
+      const payload = {
+        routeData: { routes: data.routes },
+        fileName: data.fileName,
+      };
+      const response = await fetch('/api/optimize-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        console.error('Optimize-all API error response:', text);
+        throw new Error('Failed to optimize all routes');
+      }
+      const result = await response.json(); // { routes: [ { routeId, requestIds, result, summaries } ] }
+      const byId = new Map();
+      (result.routes || []).forEach((r) => byId.set(r.routeId, r));
+
+      setData((oldData) => {
+        if (!oldData?.routes) return oldData;
+        const updatedRoutes = oldData.routes.map((route) => {
+          const nbRoute = byId.get(route.routeId);
+          if (!nbRoute) return route;
+          const { timesByJobId, orderByJobId, steps } = extractNbTimesAndOrder(nbRoute);
+          const layoverTimes = extractLayoverTimes(steps);
+          const updatedDeliveries = route.deliveries.map((delivery) => {
+            const jobId = `${delivery.stopNumber}-${route.routeId}`;
+            const jobTimes = timesByJobId[jobId];
+            const order = orderByJobId[jobId];
+            let NB_ARRIVAL = jobTimes?.arrival != null ? formatEpochToHHMM(jobTimes.arrival) : delivery.NB_ARRIVAL;
+            let NB_DEPART = jobTimes?.departure != null ? formatEpochToHHMM(jobTimes.departure) : delivery.NB_DEPART;
+            if (delivery.isBreak && layoverTimes) {
+              NB_ARRIVAL = layoverTimes.arrival != null ? formatEpochToHHMM(layoverTimes.arrival) : NB_ARRIVAL;
+              NB_DEPART = layoverTimes.departure != null ? formatEpochToHHMM(layoverTimes.departure) : NB_DEPART;
+            }
+            return { ...delivery, NB_ARRIVAL, NB_DEPART, NB_ORDER: order };
+          });
+          return { ...route, deliveries: updatedDeliveries, summary: nbRoute };
+        });
+        return { ...oldData, routes: updatedRoutes };
+      });
+    } catch (err) {
+      console.error('Optimize-all error:', err);
+      setError(err.message || 'Failed to optimize all routes');
     }
   };
 
@@ -397,20 +455,30 @@ function App() {
                 <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="bg-gray-50 rounded-lg p-4 text-center">
                     <p className="text-sm font-medium text-gray-600">Sequenced</p>
-                    <p className="mt-2 text-2xl font-bold text-gray-900">{formatMiles(totals.seq.distance)}</p>
+                    <p className="mt-2 text-2xl font-bold text-gray-900">{fmtMilesOrDash(totals.seq.distance)}</p>
                     <p className="mt-1 text-sm text-gray-600">Distance</p>
-                    <p className="mt-2 text-2xl font-bold text-gray-900">{formatSecondsToHM(totals.seq.duration)}</p>
+                    <p className="mt-2 text-2xl font-bold text-gray-900">{fmtSecondsOrDash(totals.seq.duration)}</p>
                     <p className="mt-1 text-sm text-gray-600">Drive Time</p>
-                    <p className="mt-2 text-2xl font-bold text-gray-900">{formatSecondsToHM((totals.seq.duration || 0) + (totals.seq.service || 0))}</p>
+                    {(() => {
+                      const totalSeqSeconds = (totals.seq.duration || 0) + (totals.seq.service || 0);
+                      return (
+                        <p className="mt-2 text-2xl font-bold text-gray-900">{fmtSecondsOrDash(totalSeqSeconds)}</p>
+                      );
+                    })()}
                     <p className="mt-1 text-sm text-gray-600">Total Time</p>
                   </div>
                   <div className="bg-gray-50 rounded-lg p-4 text-center">
                     <p className="text-sm font-medium text-gray-600">Optimized</p>
-                    <p className="mt-2 text-2xl font-bold text-gray-900">{formatMiles(totals.no.distance)}</p>
+                    <p className="mt-2 text-2xl font-bold text-gray-900">{fmtMilesOrDash(totals.no.distance)}</p>
                     <p className="mt-1 text-sm text-gray-600">Distance</p>
-                    <p className="mt-2 text-2xl font-bold text-gray-900">{formatSecondsToHM(totals.no.duration)}</p>
+                    <p className="mt-2 text-2xl font-bold text-gray-900">{fmtSecondsOrDash(totals.no.duration)}</p>
                     <p className="mt-1 text-sm text-gray-600">Drive Time</p>
-                    <p className="mt-2 text-2xl font-bold text-gray-900">{formatSecondsToHM((totals.no.duration || 0) + (totals.no.service || 0))}</p>
+                    {(() => {
+                      const totalNoSeqSeconds = (totals.no.duration || 0) + (totals.no.service || 0);
+                      return (
+                        <p className="mt-2 text-2xl font-bold text-gray-900">{fmtSecondsOrDash(totalNoSeqSeconds)}</p>
+                      );
+                    })()}
                     <p className="mt-1 text-sm text-gray-600">Total Time</p>
                   </div>
                 </div>
@@ -444,6 +512,7 @@ function App() {
               routes={data.routes}
               fileName={data.fileName}
               handleOptimizeRoute={handleOptimizeRoute}
+              handleOptimizeAll={handleOptimizeAll}
               optimizingRouteIds={optimizingRouteIds}
             />
           </div>

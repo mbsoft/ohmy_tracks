@@ -43,7 +43,7 @@ function depotFromFileName(fileName) {
   return '';
 }
 
-function DataTable({ routes, handleOptimizeRoute, optimizingRouteIds, fileName }) {
+function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingRouteIds, fileName }) {
   const [expandedRoutes, setExpandedRoutes] = useState({});
   const [routeStartLocations, setRouteStartLocations] = useState({});
   const [optimizingAll, setOptimizingAll] = useState(false);
@@ -93,11 +93,16 @@ function DataTable({ routes, handleOptimizeRoute, optimizingRouteIds, fileName }
   const optimizeAll = async () => {
     try {
       setOptimizingAll(true);
-      for (let i = 0; i < routes.length; i++) {
-        const r = routes[i];
-        const startLocation = getStartLocation(i);
-        // eslint-disable-next-line no-await-in-loop
-        await handleOptimizeRoute(r.routeId, startLocation);
+      if (typeof handleOptimizeAll === 'function') {
+        await handleOptimizeAll();
+      } else {
+        // Fallback: run concurrent on client (may exceed server-side limits)
+        await Promise.all(
+          routes.map((r, i) => {
+            const startLocation = getStartLocation(i);
+            return handleOptimizeRoute(r.routeId, startLocation);
+          })
+        );
       }
     } finally {
       setOptimizingAll(false);
