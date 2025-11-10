@@ -6,7 +6,7 @@ const path = require('path');
  * Uses location ID as the key
  */
 class GeocodeCache {
-  constructor(cacheFilePath = path.join(__dirname, 'geocode-cache.json')) {
+  constructor(cacheFilePath = (process.env.GEOCODE_CACHE_FILE || path.join(__dirname, 'geocode-cache.json'))) {
     this.cache = new Map();
     this.cacheFilePath = cacheFilePath;
     this.loadCache();
@@ -36,6 +36,12 @@ class GeocodeCache {
    */
   saveCache() {
     try {
+      // Ensure directory exists
+      const dir = path.dirname(this.cacheFilePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
       // Convert Map to object for JSON serialization
       const cacheData = Object.fromEntries(this.cache);
       fs.writeFileSync(this.cacheFilePath, JSON.stringify(cacheData, null, 2), 'utf8');
