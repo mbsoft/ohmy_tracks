@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: ohmy-tracks
+    env: node
+    plan: starter
+    buildCommand: |
+      npm ci --prefix frontend
+      npm run build --prefix frontend
+      npm ci --prefix backend
+    startCommand: node backend/server.js
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: NEXTBILLION_API_KEY
+        sync: false
+      - key: GEOCODE_CACHE_FILE
+        value: /var/data/geocode-cache.json
+    disk:
+      name: cache-disk
+      mountPath: /var/data
+      sizeGB: 1
+    autoDeploy: true
