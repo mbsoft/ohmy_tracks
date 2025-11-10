@@ -217,7 +217,7 @@ function createLimiter(limit) {
 
 async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClient, options = {}) {
   const routes = routeData?.routes || [];
-  const apiKey = env.NEXTBILLION_API_KEY || 'opensesame';
+  const apiKey = env.NEXTBILLION_API_KEY;
   const depotLocation = depotLocationFromClient || determineDepotLocation(fileName);
   if (!depotLocation) throw new Error('Depot location is required for route optimization');
 
