@@ -164,10 +164,13 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
       });
     }
 
+    const shiftStartEpoch = new Date(route.routeStartTime).getTime() / 1000;
+    const shiftEndEpoch = shiftStartEpoch + 24 * 3600;
+
     const vehicle = {
       id: route.routeId,
       description: `${route.routeId}-${route.driverName}-${route.deliveries.length}`,
-      time_window: [new Date(route.routeStartTime).getTime() / 1000, new Date(route.routeEndTime).getTime() / 1000],
+      time_window: [shiftStartEpoch, shiftEndEpoch],
       start_index: depotIndex,
       end_index: depotIndex,
       layover_config: {
@@ -179,11 +182,11 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
 
     const vehicleSeq = {
       ...vehicle,
-      time_window: [vehicle.time_window[0], computeEndOfShift1700(route.routeStartTime)]
+      time_window: [shiftStartEpoch, shiftEndEpoch]
     };
     const vehicleNoSeq = {
       ...vehicle,
-      time_window: [vehicle.time_window[0], computeEndOfShift1900(route.routeStartTime)]
+      time_window: [shiftStartEpoch, shiftEndEpoch]
     };
 
     // 1) In-sequence run (sequence_order)
@@ -338,10 +341,13 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
       });
     }
 
+    const shiftStartEpoch = new Date(route.routeStartTime).getTime() / 1000;
+    const shiftEndEpoch = shiftStartEpoch + 24 * 3600;
+
     const vehicle = {
       id: route.routeId,
       description: `${route.routeId}-${route.driverName}-${route.deliveries.length}`,
-      time_window: [new Date(route.routeStartTime).getTime() / 1000, new Date(route.routeEndTime).getTime() / 1000],
+      time_window: [shiftStartEpoch, shiftEndEpoch],
       start_index: depotIndex,
       end_index: depotIndex,
       layover_config: { max_continuous_time: 18000, layover_duration: 1800, include_service_time: true }
@@ -349,11 +355,11 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
 
     const vehicleSeq = {
       ...vehicle,
-      time_window: [vehicle.time_window[0], computeEndOfShift1700(route.routeStartTime)]
+      time_window: [shiftStartEpoch, shiftEndEpoch]
     };
     const vehicleNoSeq = {
       ...vehicle,
-      time_window: [vehicle.time_window[0], computeEndOfShift1900(route.routeStartTime)]
+      time_window: [shiftStartEpoch, shiftEndEpoch]
     };
 
     let seq = 1;
