@@ -43,13 +43,38 @@ function extractNbTimesAndOrder(nbResult) {
     const jobId = s.id || s.job || s.task_id;
     const type = (s.type || s.activity || '').toString().toLowerCase();
     if (jobId) {
-      // Only increment order for job steps (skip start/end/layover if they don't have job id)
-      order += 1;
-      orderByJobId[jobId] = order;
+      // Only assign an order the first time we see a jobId
+      if (orderByJobId[jobId] == null) {
+        order += 1;
+        orderByJobId[jobId] = order;
+      }
     }
     const arrival = s.arrival ?? s.start_time ?? s.time ?? s.start;
-    const departure = s.departure ?? s.end_time ?? (arrival != null ? arrival + (s.service || 0) + (s.setup || 0) + (s.waiting_time || 0) : undefined);
-    if (jobId) timesByJobId[jobId] = { arrival, departure };
+    const departure =
+      s.departure ??
+      s.end_time ??
+      (arrival != null ? arrival + (s.service || 0) + (s.setup || 0) + (s.waiting_time || 0) : undefined);
+    if (jobId) {
+      const existing = timesByJobId[jobId];
+      if (!existing) {
+        timesByJobId[jobId] = { arrival, departure };
+      } else {
+        // Combine across repeated job steps: earliest arrival, latest departure
+        const earliestArrival =
+          existing.arrival == null
+            ? arrival
+            : arrival == null
+            ? existing.arrival
+            : Math.min(existing.arrival, arrival);
+        const latestDeparture =
+          existing.departure == null
+            ? departure
+            : departure == null
+            ? existing.departure
+            : Math.max(existing.departure, departure);
+        timesByJobId[jobId] = { arrival: earliestArrival, departure: latestDeparture };
+      }
+    }
   });
   return { timesByJobId, orderByJobId, steps };
 }
@@ -211,14 +236,15 @@ function App() {
       }
       const result = await response.json(); // { routes: [ { routeId, requestIds, result, summaries } ] }
       const byId = new Map();
-      (result.routes || []).forEach((r) => byId.set(r.routeId, r));
+      (result.routes || []).forEach((r) => byId.set(String(r.routeId), r));
 
       setData((oldData) => {
         if (!oldData?.routes) return oldData;
         const updatedRoutes = oldData.routes.map((route) => {
-          const nbRoute = byId.get(route.routeId);
+          const nbRoute = byId.get(String(route.routeId));
           if (!nbRoute) return route;
-          const { timesByJobId, orderByJobId, steps } = extractNbTimesAndOrder(nbRoute);
+          // nbRoute.result is the full NB poll response; maintain compatibility with single-route path
+          const { timesByJobId, orderByJobId, steps } = extractNbTimesAndOrder(nbRoute.result || nbRoute);
           const layoverTimes = extractLayoverTimes(steps);
           const updatedDeliveries = route.deliveries.map((delivery) => {
             const jobId = `${delivery.stopNumber}-${route.routeId}`;
