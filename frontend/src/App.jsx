@@ -485,13 +485,6 @@ function App() {
                     <p className="mt-1 text-sm text-gray-600">Distance</p>
                     <p className="mt-2 text-2xl font-bold text-gray-900">{fmtSecondsOrDash(totals.seq.duration)}</p>
                     <p className="mt-1 text-sm text-gray-600">Drive Time</p>
-                    {(() => {
-                      const totalSeqSeconds = (totals.seq.duration || 0) + (totals.seq.service || 0);
-                      return (
-                        <p className="mt-2 text-2xl font-bold text-gray-900">{fmtSecondsOrDash(totalSeqSeconds)}</p>
-                      );
-                    })()}
-                    <p className="mt-1 text-sm text-gray-600">Total Time</p>
                   </div>
                   <div className="bg-gray-50 rounded-lg p-4 text-center">
                     <p className="text-sm font-medium text-gray-600">Optimized</p>
@@ -499,13 +492,6 @@ function App() {
                     <p className="mt-1 text-sm text-gray-600">Distance</p>
                     <p className="mt-2 text-2xl font-bold text-gray-900">{fmtSecondsOrDash(totals.no.duration)}</p>
                     <p className="mt-1 text-sm text-gray-600">Drive Time</p>
-                    {(() => {
-                      const totalNoSeqSeconds = (totals.no.duration || 0) + (totals.no.service || 0);
-                      return (
-                        <p className="mt-2 text-2xl font-bold text-gray-900">{fmtSecondsOrDash(totalNoSeqSeconds)}</p>
-                      );
-                    })()}
-                    <p className="mt-1 text-sm text-gray-600">Total Time</p>
                   </div>
                 </div>
               )}

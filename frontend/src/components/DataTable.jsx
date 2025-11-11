@@ -8,8 +8,10 @@ import {
 
 function formatDuration(totalSeconds) {
   if (typeof totalSeconds !== 'number' || !Number.isFinite(totalSeconds)) return '-';
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.round((totalSeconds % 3600) / 60);
+  // Normalize by rounding to minutes first to avoid "1h 60m"
+  const totalMinutes = Math.round(totalSeconds / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
   if (hours > 0) return `${hours}h ${minutes}m`;
   return `${minutes}m`;
 }
@@ -196,12 +198,15 @@ function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingR
                             <th className="px-3 md:px-4 py-2 text-left">Distance</th>
                             <th className="px-3 md:px-4 py-2 text-left whitespace-nowrap">Drive</th>
                             <th className="px-3 md:px-4 py-2 text-left whitespace-nowrap">Total</th>
+                            <th className="px-3 md:px-4 py-2 text-left">Unassigned</th>
                           </tr>
                         </thead>
                         <tbody>
                           {(() => {
                             const inSeq = route.summary?.summaries?.inSequence;
                             const noSeq = route.summary?.summaries?.noSequence || route.summary?.result?.summary;
+                            const inSeqUnassigned = route.summary?.unassignedCounts?.inSequence ?? (Array.isArray(route.summary?.resultInSeq?.result?.unassigned) ? route.summary.resultInSeq.result.unassigned.length : 0);
+                            const noSeqUnassigned = route.summary?.unassignedCounts?.noSequence ?? (Array.isArray(route.summary?.result?.result?.unassigned) ? route.summary.result.result.unassigned.length : 0);
                             const inSeqDistance = formatDistance(inSeq?.distance);
                             const inSeqDrive = formatDuration(inSeq?.duration);
                             const inSeqTotal = (typeof inSeq?.duration === 'number' && typeof inSeq?.service === 'number') ? formatDuration(inSeq.duration + inSeq.service) : '-';
@@ -216,6 +221,7 @@ function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingR
                                   <td className="px-3 md:px-4 py-2">{inSeqDistance}</td>
                                   <td className="px-3 md:px-4 py-2 whitespace-nowrap">{inSeqDrive}</td>
                                   <td className="px-3 md:px-4 py-2 whitespace-nowrap">{inSeqTotal}</td>
+                                  <td className="px-3 md:px-4 py-2">{inSeqUnassigned}</td>
                                 </tr>
                                 <tr>
                                   <td className="px-3 md:px-4 py-2">optimized</td>
@@ -223,6 +229,7 @@ function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingR
                                   <td className="px-3 md:px-4 py-2">{noSeqDistance}</td>
                                   <td className="px-3 md:px-4 py-2 whitespace-nowrap">{noSeqDrive}</td>
                                   <td className="px-3 md:px-4 py-2 whitespace-nowrap">{noSeqTotal}</td>
+                                  <td className="px-3 md:px-4 py-2">{noSeqUnassigned}</td>
                                 </tr>
                               </>
                             );

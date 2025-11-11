@@ -9,6 +9,36 @@ function determineDepotLocation(fileName) {
   return null; // Default or handle error
 }
 
+function getTimezoneOffsetSeconds(routeDateTime) {
+  const s = String(routeDateTime || '').toUpperCase();
+  // Handle common US time zone abbreviations that may appear in the report
+  if (s.includes('EDT')) return 4 * 3600; // UTC-4
+  if (s.includes('EST')) return 5 * 3600; // UTC-5
+  if (s.includes('CDT')) return 5 * 3600; // UTC-5
+  if (s.includes('CST')) return 6 * 3600; // UTC-6
+  if (s.includes('MDT')) return 6 * 3600; // UTC-6
+  if (s.includes('MST')) return 7 * 3600; // UTC-7
+  if (s.includes('PDT')) return 7 * 3600; // UTC-7
+  if (s.includes('PST')) return 8 * 3600; // UTC-8
+  return 0;
+}
+
+function computeEndOfShift1900(routeDateTime) {
+  if (!routeDateTime) return 0;
+  const dateOnly = String(routeDateTime).split(' ')[0];
+  const d = new Date(`${dateOnly} 19:00:00`);
+  const tzAdjust = getTimezoneOffsetSeconds(routeDateTime);
+  return Math.floor(d.getTime() / 1000) + tzAdjust;
+}
+
+function computeEndOfShift1700(routeDateTime) {
+  if (!routeDateTime) return 0;
+  const dateOnly = String(routeDateTime).split(' ')[0];
+  const d = new Date(`${dateOnly} 17:00:00`);
+  const tzAdjust = getTimezoneOffsetSeconds(routeDateTime);
+  return Math.floor(d.getTime() / 1000) + tzAdjust;
+}
+
 function parseTimeToEpoch(timeStr, routeDateTime) {
   if (!timeStr || !routeDateTime) return 0;
   const dateOnly = String(routeDateTime).split(' ')[0];
@@ -17,7 +47,8 @@ function parseTimeToEpoch(timeStr, routeDateTime) {
   if (!m) {
     const d = new Date(`${dateOnly} ${t}`);
     const epoch = Math.floor(d.getTime() / 1000);
-    return Number.isFinite(epoch) ? epoch : 0;
+    const tzAdjust = getTimezoneOffsetSeconds(routeDateTime);
+    return Number.isFinite(epoch) ? epoch + tzAdjust : 0;
   }
   let hours = parseInt(m[1], 10);
   const minutes = parseInt(m[2], 10);
@@ -26,7 +57,8 @@ function parseTimeToEpoch(timeStr, routeDateTime) {
   if (ampm === 'pm' && hours !== 12) hours += 12;
   if (ampm === 'am' && hours === 12) hours = 0;
   const d = new Date(`${dateOnly} ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
-  return Math.floor(d.getTime() / 1000);
+  const tzAdjust = getTimezoneOffsetSeconds(routeDateTime);
+  return Math.floor(d.getTime() / 1000) + tzAdjust;
 }
 
 function deriveTimeWindowEpochs(openCloseTime, routeDateTime, fallbackArrival, fallbackDepart) {
@@ -127,14 +159,30 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
       }
     };
 
+    const vehicleSeq = {
+      ...vehicle,
+      time_window: [vehicle.time_window[0], computeEndOfShift1700(route.routeStartTime)]
+    };
+    const vehicleNoSeq = {
+      ...vehicle,
+      time_window: [vehicle.time_window[0], computeEndOfShift1900(route.routeStartTime)]
+    };
+
     // 1) In-sequence run (sequence_order)
-    let seq = 1;
-    const jobsInSeq = baseJobs.map(j => ({ ...j, sequence_order: seq++ }));
+  let seq = 1;
+  const jobsInSeq = baseJobs.map((j, idx) => {
+    const sequence_order = idx + 1;
+    if (sequence_order === 1) {
+      return { ...j, sequence_order };
+    }
+    const { time_windows, ...rest } = j;
+    return { ...rest, sequence_order };
+  });
     const requestBodySeq = {
       locations: { location: locations },
-      vehicles: [vehicle],
+      vehicles: [vehicleSeq],
       jobs: jobsInSeq,
-      options: { routing: { mode: 'truck' },objective: { travel_cost: 'duration' } },
+      options: { routing: { mode: 'truck', traffic_timestamp: 1760648400},objective: { travel_cost: 'duration' } },
       description: `Optimization (in-sequence) for ${route.routeId}`
     };
     const { result: resultInSeq, requestId: requestIdInSeq } = await submitAndPoll(requestBodySeq, apiKey);
@@ -142,12 +190,15 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
     // 2) No predefined sequence run
     const requestBodyNoSeq = {
       locations: { location: locations },
-      vehicles: [vehicle],
+      vehicles: [vehicleNoSeq],
       jobs: baseJobs,
-      options: { routing: { mode: 'truck' },objective: { travel_cost: 'duration' } },
+      options: { routing: { mode: 'truck', traffic_timestamp: 1760648400 },objective: { travel_cost: 'duration' } },
       description: `Optimization (no sequence) for ${route.routeId}`
     };
     const { result: resultNoSeq, requestId: requestIdNoSeq } = await submitAndPoll(requestBodyNoSeq, apiKey);
+
+    const seqUnassigned = Array.isArray(resultInSeq?.result?.unassigned) ? resultInSeq.result.unassigned.length : 0;
+    const noUnassigned = Array.isArray(resultNoSeq?.result?.unassigned) ? resultNoSeq.result.unassigned.length : 0;
 
     finalCombined = {
       ...resultNoSeq,
@@ -156,6 +207,10 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
       summaries: {
         inSequence: resultInSeq?.result?.summary,
         noSequence: resultNoSeq?.result?.summary,
+      },
+      unassignedCounts: {
+        inSequence: seqUnassigned,
+        noSequence: noUnassigned
       }
     };
   }
@@ -195,7 +250,9 @@ function convertToSecondsSafe(val) {
 
 function convertToEpoch(time, dateTimeStr) {
   if (!time || !dateTimeStr) return 0;
-  return new Date(`${dateTimeStr.split(' ')[0]} ${time}`).getTime() / 1000;
+  const base = new Date(`${dateTimeStr.split(' ')[0]} ${time}`);
+  const tzAdjust = getTimezoneOffsetSeconds(dateTimeStr);
+  return Math.floor(base.getTime() / 1000) + tzAdjust;
 }
 
 // ---------------- Concurrency helpers & optimizer -----------------
@@ -269,14 +326,45 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
       layover_config: { max_continuous_time: 18000, layover_duration: 1800, include_service_time: true }
     };
 
-    let seq = 1;
-    const jobsInSeq = baseJobs.map(j => ({ ...j, sequence_order: seq++ }));
+    const vehicleSeq = {
+      ...vehicle,
+      time_window: [vehicle.time_window[0], computeEndOfShift1700(route.routeStartTime)]
+    };
+    const vehicleNoSeq = {
+      ...vehicle,
+      time_window: [vehicle.time_window[0], computeEndOfShift1900(route.routeStartTime)]
+    };
 
-    const requestBodySeq = { locations: { location: locations }, vehicles: [vehicle], jobs: jobsInSeq, options: { objective: { travel_cost: 'duration' } }, description: `Optimization (in-sequence) for ${route.routeId}` };
-    const requestBodyNoSeq = { locations: { location: locations }, vehicles: [vehicle], jobs: baseJobs,   options: { objective: { travel_cost: 'duration' } }, description: `Optimization (no sequence) for ${route.routeId}` };
+    let seq = 1;
+    const jobsInSeq = baseJobs.map((j, idx) => {
+      const sequence_order = idx + 1;
+      if (sequence_order === 1) {
+        return { ...j, sequence_order };
+      }
+      const { time_windows, ...rest } = j;
+      return { ...rest, sequence_order };
+    });
+
+    const requestBodySeq = {
+      locations: { location: locations },
+      vehicles: [vehicleSeq],
+      jobs: jobsInSeq,
+      options: { routing: { mode: 'truck', traffic_timestamp: 1760648400 }, objective: { travel_cost: 'duration' } },
+      description: `Optimization (in-sequence) for ${route.routeId}`
+    };
+    const requestBodyNoSeq = {
+      locations: { location: locations },
+      vehicles: [vehicleNoSeq],
+      jobs: baseJobs,
+      options: { routing: { mode: 'truck', traffic_timestamp: 1760648400 }, objective: { travel_cost: 'duration' } },
+      description: `Optimization (no sequence) for ${route.routeId}`
+    };
 
     // Submit both runs under submit limiter
+    console.log('NB Optimization (All) request URL:', `https://api.nextbillion.io/optimization/v2?key=${apiKey}`);
+    console.log('NB Optimization (All) in-sequence body:', JSON.stringify(requestBodySeq, null, 2));
     const submitSeq = await submitLimit(() => axios.post(`https://api.nextbillion.io/optimization/v2?key=${apiKey}`, requestBodySeq, { headers: { 'Content-Type': 'application/json' } }));
+    console.log('NB Optimization (All) no-sequence body:', JSON.stringify(requestBodyNoSeq, null, 2));
     const submitNo  = await submitLimit(() => axios.post(`https://api.nextbillion.io/optimization/v2?key=${apiKey}`, requestBodyNoSeq, { headers: { 'Content-Type': 'application/json' } }));
 
     const requestIdInSeq = submitSeq?.data?.id || submitSeq?.data?.requestId;
@@ -287,6 +375,9 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
     const pollNo  = pollLimit(() => pollOptimizationStatus(requestIdNoSeq, apiKey));
     const [resultInSeq, resultNoSeq] = await Promise.all([pollSeq, pollNo]);
 
+    const seqUnassigned = Array.isArray(resultInSeq?.result?.unassigned) ? resultInSeq.result.unassigned.length : 0;
+    const noUnassigned = Array.isArray(resultNoSeq?.result?.unassigned) ? resultNoSeq.result.unassigned.length : 0;
+
     return {
       routeId: route.routeId,
       requestIds: { inSequence: requestIdInSeq, noSequence: requestIdNoSeq },
@@ -294,6 +385,10 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
       summaries: {
         inSequence: resultInSeq?.result?.summary,
         noSequence: resultNoSeq?.result?.summary,
+      },
+      unassignedCounts: {
+        inSequence: seqUnassigned,
+        noSequence: noUnassigned
       }
     };
   })());
