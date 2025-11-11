@@ -1,5 +1,17 @@
 const axios = require('axios');
 
+function describeAxiosError(error) {
+  const data = error?.response?.data;
+  if (data) {
+    try {
+      return typeof data === 'string' ? data : JSON.stringify(data);
+    } catch (_) {
+      return String(data);
+    }
+  }
+  return error?.message || 'Unknown error';
+}
+
 function determineDepotLocation(fileName) {
   if (fileName && fileName.startsWith('ATL')) {
     return '33.807970,-84.43696';
@@ -92,7 +104,13 @@ async function submitAndPoll(requestBody, apiKey) {
   const url = `https://api.nextbillion.io/optimization/v2?key=${apiKey}`;
   console.log('NB Optimization request URL:', url);
   console.log('NB Optimization request body:', JSON.stringify(requestBody, null, 2));
-  const submitResp = await axios.post(url, requestBody, { headers: { 'Content-Type': 'application/json' } });
+  let submitResp;
+  try {
+    submitResp = await axios.post(url, requestBody, { headers: { 'Content-Type': 'application/json' } });
+  } catch (err) {
+    console.error('NB Optimization submit error:', describeAxiosError(err));
+    throw new Error(describeAxiosError(err));
+  }
   const requestId = submitResp?.data?.id || submitResp?.data?.requestId;
   if (!requestId) {
     console.error('Unexpected submit response:', submitResp?.data);
@@ -274,7 +292,10 @@ function createLimiter(limit) {
 
 async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClient, options = {}) {
   const routes = routeData?.routes || [];
-  const apiKey = env.NEXTBILLION_API_KEY;
+  const apiKey = env.NEXTBILLION_API_KEY || env.NB_API_KEY || env.NB_KEY;
+  if (!apiKey) {
+    throw new Error('NEXTBILLION_API_KEY is not configured on the server');
+  }
   const depotLocation = depotLocationFromClient || determineDepotLocation(fileName);
   if (!depotLocation) throw new Error('Depot location is required for route optimization');
 
@@ -361,11 +382,25 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
     };
 
     // Submit both runs under submit limiter
-    console.log('NB Optimization (All) request URL:', `https://api.nextbillion.io/optimization/v2?key=${apiKey}`);
+    console.log('NB Optimization (All) request URL:', 'https://api.nextbillion.io/optimization/v2?key=***');
     console.log('NB Optimization (All) in-sequence body:', JSON.stringify(requestBodySeq, null, 2));
-    const submitSeq = await submitLimit(() => axios.post(`https://api.nextbillion.io/optimization/v2?key=${apiKey}`, requestBodySeq, { headers: { 'Content-Type': 'application/json' } }));
+    const submitSeq = await submitLimit(async () => {
+      try {
+        return await axios.post(`https://api.nextbillion.io/optimization/v2?key=${apiKey}`, requestBodySeq, { headers: { 'Content-Type': 'application/json' } });
+      } catch (err) {
+        console.error('NB Optimization (All) in-sequence submit error:', describeAxiosError(err));
+        throw new Error(describeAxiosError(err));
+      }
+    });
     console.log('NB Optimization (All) no-sequence body:', JSON.stringify(requestBodyNoSeq, null, 2));
-    const submitNo  = await submitLimit(() => axios.post(`https://api.nextbillion.io/optimization/v2?key=${apiKey}`, requestBodyNoSeq, { headers: { 'Content-Type': 'application/json' } }));
+    const submitNo  = await submitLimit(async () => {
+      try {
+        return await axios.post(`https://api.nextbillion.io/optimization/v2?key=${apiKey}`, requestBodyNoSeq, { headers: { 'Content-Type': 'application/json' } });
+      } catch (err) {
+        console.error('NB Optimization (All) no-sequence submit error:', describeAxiosError(err));
+        throw new Error(describeAxiosError(err));
+      }
+    });
 
     const requestIdInSeq = submitSeq?.data?.id || submitSeq?.data?.requestId;
     const requestIdNoSeq = submitNo?.data?.id || submitNo?.data?.requestId;
