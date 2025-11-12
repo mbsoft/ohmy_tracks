@@ -34,6 +34,7 @@ function parseOmnitracXLS(buffer) {
       }
       currentRoute = {
         routeId: firstCell.match(/Route Id:\s*(.+)/)?.[1].trim() || '',
+        driverId: '',
         driverName: '',
         equipmentType: '',
         routeStartTime: '',
@@ -49,18 +50,18 @@ function parseOmnitracXLS(buffer) {
       currentRoute.equipmentType = equipmentCell;
     }
     
-    // Look for Driver
-    else if (firstCell.match(/^[A-Z]{2,}\d+:/)) {
-      // Format: "JYV010825:  Andrew Crumbly" or "ZZ12009720:  Glenn Kirms"
-      const driverMatch = firstCell.match(/^[A-Z\d]+:\s*(.+)/);
-      if (currentRoute && driverMatch) {
-        currentRoute.driverName = driverMatch[1].trim();
-        // Equipment Type is captured by the main loop check above
+    // Look for Driver (independent of equipment parsing; both can exist on the same row)
+    if (currentRoute && !currentRoute.driverId && firstCell.match(/^[A-Z\d]{2,}:\s*/)) {
+      // Formats like "ZZ12250071:  Jamille Talley"
+      const m = firstCell.match(/^([A-Z\d]+):\s*(.+)$/);
+      if (currentRoute && m) {
+        currentRoute.driverId = m[1].trim();
+        currentRoute.driverName = m[2].trim();
       }
     }
     
     // Look for Route Start Time
-    else if (firstCell.startsWith('Route Start Time:')) {
+    if (firstCell.startsWith('Route Start Time:')) {
       const timeMatch = firstCell.match(/Route Start Time:\s*(.+)/);
       if (currentRoute && timeMatch) {
         currentRoute.routeStartTime = timeMatch[1].trim();
@@ -68,7 +69,7 @@ function parseOmnitracXLS(buffer) {
     }
     
     // Look for Route Complete Time
-    else if (firstCell.startsWith('Route Complete Time:')) {
+    if (firstCell.startsWith('Route Complete Time:')) {
       const timeMatch = firstCell.match(/Route Complete Time:\s*(.+)/);
       if (currentRoute && timeMatch) {
         currentRoute.routeEndTime = timeMatch[1].trim();
@@ -76,19 +77,19 @@ function parseOmnitracXLS(buffer) {
     }
     
     // Look for header row (indicates delivery section starts)
-    else if (firstCell === 'Stop' && String(row[1] || '').includes('Location')) {
+    if (firstCell === 'Stop' && String(row[1] || '').includes('Location')) {
       inDeliverySection = true;
     }
     
     // Parse delivery data (stop number in first column)
-    else if (inDeliverySection && currentRoute && /^\d+$/.test(firstCell)) {
+    if (inDeliverySection && currentRoute && /^\d+$/.test(firstCell)) {
       const delivery = parseDelivery(data, i);
       if (delivery) {
         currentRoute.deliveries.push(delivery);
       }
     }
     // Parse Paid Break line item (same row contains start, end, duration)
-    else if (inDeliverySection && currentRoute) {
+    if (inDeliverySection && currentRoute) {
       const locationNameCell = String(row[3] || '').trim();
       const isPaidBreak = firstCell.toLowerCase().startsWith('paid break') || locationNameCell.toLowerCase().startsWith('paid break');
       if (isPaidBreak) {

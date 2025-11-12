@@ -1,7 +1,54 @@
-import React, { useState } from 'react'; // Removed useEffect since WebSocket is not needed
+import React, { useState, useEffect } from 'react'; // Removed useEffect since WebSocket is not needed
 import FileUpload from './components/FileUpload';
 import DataTable from './components/DataTable';
 import { exportToCSV } from './utils/csvExport';
+
+function toFixed6(num) {
+  const n = Number(num);
+  if (!Number.isFinite(n)) return '';
+  return n.toFixed(6);
+}
+
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+function computeShiftEndPlus12h(startTimeStr) {
+  if (!startTimeStr) return '';
+  const s = String(startTimeStr).trim();
+  const m = s.match(/(\d{1,2}\/\d{1,2}\/\d{4})\s+(\d{2}:\d{2}:\d{2})(?:\s+([A-Z]{2,5}))?/);
+  if (!m) return s; // fallback to original if unrecognized
+  const datePart = m[1];
+  const timePart = m[2];
+  const tz = m[3] ? ` ${m[3]}` : '';
+  const d = new Date(`${datePart} ${timePart}`);
+  if (isNaN(d.getTime())) return s;
+  const end = new Date(d.getTime() + 12 * 3600 * 1000);
+  const mm = pad2(end.getMonth() + 1);
+  const dd = pad2(end.getDate());
+  const yyyy = end.getFullYear();
+  const HH = pad2(end.getHours());
+  const MM = pad2(end.getMinutes());
+  const SS = pad2(end.getSeconds());
+  return `${mm}/${dd}/${yyyy} ${HH}:${MM}:${SS}${tz}`;
+}
+
+function formatLatLngString(value) {
+  if (!value) return '';
+  const parts = String(value).split(',');
+  if (parts.length !== 2) return value;
+  const lat = toFixed6(parts[0].trim());
+  const lng = toFixed6(parts[1].trim());
+  if (lat === '' || lng === '') return value;
+  return `${lat},${lng}`;
+}
+
+function depotFromFileName(fileName) {
+  if (!fileName) return '';
+  if (fileName.startsWith('ATL')) return formatLatLngString('33.807970,-84.436960');
+  if (fileName.startsWith('NB Mays')) return formatLatLngString('39.442140,-74.703320');
+  return '';
+}
 
 function formatEpochToHHMM(epochSeconds) {
   if (epochSeconds == null) return '';
@@ -100,6 +147,31 @@ function App() {
   const [cacheMessage, setCacheMessage] = useState(null);
   const [optimizingRouteIds, setOptimizingRouteIds] = useState(new Set());
   const [activeTab, setActiveTab] = useState('planned'); // 'planned' | 'full'
+  const [selectedVehicleIds, setSelectedVehicleIds] = useState(new Set());
+  const [selectedDeliveryKeys, setSelectedDeliveryKeys] = useState(new Set());
+
+  // Initialize selections to "all selected" when new data is loaded
+  useEffect(() => {
+    if (!data?.routes || data.routes.length === 0) {
+      setSelectedVehicleIds(new Set());
+      setSelectedDeliveryKeys(new Set());
+      return;
+    }
+    // Vehicles: one per route
+    const vehicleIds = new Set(
+      data.routes.map((route, idx) => String(route.routeId ?? idx))
+    );
+    setSelectedVehicleIds(vehicleIds);
+    // Deliveries: all non-break stops across all routes
+    const deliveryKeys = new Set();
+    data.routes.forEach((route, rIndex) => {
+      (route.deliveries || []).forEach((d, dIndex) => {
+        if (d?.isBreak) return;
+        deliveryKeys.add(`${route.routeId ?? rIndex}::${dIndex}`);
+      });
+    });
+    setSelectedDeliveryKeys(deliveryKeys);
+  }, [data?.routes]);
 
   const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
@@ -557,7 +629,181 @@ function App() {
         )}
 
         {activeTab === 'full' && (
-          <></>
+          <>
+            {/* Build vehicles and deliveries (excluding Paid Break) */}
+            {(() => {
+              const routes = data?.routes || [];
+              const depot = depotFromFileName(data?.fileName);
+              const computeStartLocation = (route) => {
+                if (depot) return depot;
+                // Fallback to first geocoded stop
+                const first = (route.deliveries || []).find((d) => d?.geocode?.success && d?.geocode?.latitude && d?.geocode?.longitude);
+                if (first) return formatLatLngString(`${first.geocode.latitude},${first.geocode.longitude}`);
+                return '';
+              };
+              const vehicles = routes.map((route, idx) => {
+                const startLoc = computeStartLocation(route);
+                const endLoc = startLoc; // Same rules as sequenced and non-sequenced (start=end=depot)
+                return {
+                  id: String(route.routeId ?? idx),
+                  equipmentTypeId: route.equipmentType || '',
+                  driverId: route.driverId || '',
+                  driverName: route.driverName || '',
+                  startTime: route.routeStartTime || '',
+                  endTime: computeShiftEndPlus12h(route.routeStartTime || '') || '',
+                  capacityWeight: '', // placeholder
+                  capacityPallets: '', // placeholder
+                  startLocation: startLoc,
+                  endLocation: endLoc,
+                };
+              });
+              const deliveries = [];
+              routes.forEach((route, rIndex) => {
+                (route.deliveries || []).forEach((d, dIndex) => {
+                  if (d?.isBreak) return; // exclude Paid Break Time
+                  deliveries.push({
+                    key: `${route.routeId ?? rIndex}::${dIndex}`,
+                    locationId: d.locationId || '',
+                    locationName: d.locationName || '',
+                    address: d.address || '',
+                    serviceWindows: d.serviceWindows || d.openCloseTime || '',
+                    weight: d.weight || '',
+                    pallets: d.cube || '',
+                  });
+                });
+              });
+
+              const allVehiclesSelected = vehicles.length > 0 && vehicles.every((v) => selectedVehicleIds.has(v.id));
+              const toggleAllVehicles = () => {
+                if (allVehiclesSelected) {
+                  setSelectedVehicleIds(new Set());
+                } else {
+                  setSelectedVehicleIds(new Set(vehicles.map((v) => v.id)));
+                }
+              };
+              const toggleVehicle = (id) => {
+                setSelectedVehicleIds((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(id)) next.delete(id);
+                  else next.add(id);
+                  return next;
+                });
+              };
+
+              const allDeliveriesSelected = deliveries.length > 0 && deliveries.every((d) => selectedDeliveryKeys.has(d.key));
+              const toggleAllDeliveries = () => {
+                if (allDeliveriesSelected) {
+                  setSelectedDeliveryKeys(new Set());
+                } else {
+                  setSelectedDeliveryKeys(new Set(deliveries.map((d) => d.key)));
+                }
+              };
+              const toggleDelivery = (key) => {
+                setSelectedDeliveryKeys((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(key)) next.delete(key);
+                  else next.add(key);
+                  return next;
+                });
+              };
+
+              return (
+                <div className="space-y-8">
+                  {/* Vehicle Inventory */}
+                  <div className="bg-white rounded-lg shadow overflow-hidden">
+                    <div className="px-6 py-4 border-b border-gray-200">
+                      <h2 className="text-lg font-semibold text-gray-900">Vehicle Inventory</h2>
+                    </div>
+                    <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
+                      <table className="min-w-full divide-y divide-gray-200 text-sm">
+                        <thead className="bg-gray-50 sticky top-0 z-10">
+                          <tr>
+                            <th className="px-4 py-3">
+                              <input type="checkbox" checked={allVehiclesSelected} onChange={toggleAllVehicles} />
+                            </th>
+                            <th className="px-4 py-3 text-left font-medium text-gray-700">Equipment Type ID</th>
+                            <th className="px-4 py-3 text-left font-medium text-gray-700">Driver ID</th>
+                            <th className="px-4 py-3 text-left font-medium text-gray-700">Driver Name</th>
+                            <th className="px-4 py-3 text-left font-medium text-gray-700">Start Time</th>
+                            <th className="px-4 py-3 text-left font-medium text-gray-700">End Time</th>
+                            <th className="px-4 py-3 text-left font-medium text-gray-700">Capacity Weight</th>
+                            <th className="px-4 py-3 text-left font-medium text-gray-700">Capacity Pallets</th>
+                            <th className="px-4 py-3 text-left font-medium text-gray-700">Start Location</th>
+                            <th className="px-4 py-3 text-left font-medium text-gray-700">End Location</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {vehicles.map((v) => (
+                            <tr key={v.id} className="hover:bg-gray-50">
+                              <td className="px-4 py-3">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedVehicleIds.has(v.id)}
+                                  onChange={() => toggleVehicle(v.id)}
+                                />
+                              </td>
+                              <td className="px-4 py-3">{v.equipmentTypeId || '—'}</td>
+                              <td className="px-4 py-3">{v.driverId || '—'}</td>
+                              <td className="px-4 py-3">{v.driverName || '—'}</td>
+                              <td className="px-4 py-3 whitespace-nowrap">{v.startTime || '—'}</td>
+                              <td className="px-4 py-3 whitespace-nowrap">{v.endTime || '—'}</td>
+                              <td className="px-4 py-3">{v.capacityWeight || '—'}</td>
+                              <td className="px-4 py-3">{v.capacityPallets || '—'}</td>
+                              <td className="px-4 py-3 font-mono text-xs">{v.startLocation || '—'}</td>
+                              <td className="px-4 py-3 font-mono text-xs">{v.endLocation || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Delivery List */}
+                  <div className="bg-white rounded-lg shadow overflow-hidden">
+                    <div className="px-6 py-4 border-b border-gray-200">
+                      <h2 className="text-lg font-semibold text-gray-900">Delivery List</h2>
+                    </div>
+                    <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
+                      <table className="min-w-full divide-y divide-gray-200 text-sm">
+                        <thead className="bg-gray-50 sticky top-0 z-10">
+                          <tr>
+                            <th className="px-4 py-3">
+                              <input type="checkbox" checked={allDeliveriesSelected} onChange={toggleAllDeliveries} />
+                            </th>
+                            <th className="px-4 py-3 text-left font-medium text-gray-700">Location ID</th>
+                            <th className="px-4 py-3 text-left font-medium text-gray-700">Location Name</th>
+                            <th className="px-4 py-3 text-left font-medium text-gray-700">Address</th>
+                            <th className="px-4 py-3 text-left font-medium text-gray-700">Service Windows</th>
+                            <th className="px-4 py-3 text-left font-medium text-gray-700">Weight</th>
+                            <th className="px-4 py-3 text-left font-medium text-gray-700">Pallets</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {deliveries.map((d) => (
+                            <tr key={d.key} className="hover:bg-gray-50">
+                              <td className="px-4 py-3">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedDeliveryKeys.has(d.key)}
+                                  onChange={() => toggleDelivery(d.key)}
+                                />
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap">{d.locationId || '—'}</td>
+                              <td className="px-4 py-3">{d.locationName || '—'}</td>
+                              <td className="px-4 py-3">{d.address || '—'}</td>
+                              <td className="px-4 py-3 whitespace-nowrap">{d.serviceWindows || '—'}</td>
+                              <td className="px-4 py-3 whitespace-nowrap">{d.weight || '—'}</td>
+                              <td className="px-4 py-3 whitespace-nowrap">{d.pallets || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </>
         )}
       </main>
     </div>

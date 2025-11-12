@@ -165,7 +165,7 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
     }
 
     const shiftStartEpoch = new Date(route.routeStartTime).getTime() / 1000;
-    const shiftEndEpoch = shiftStartEpoch + 24 * 3600;
+    const shiftEndEpoch = shiftStartEpoch + 12 * 3600;
 
     const vehicle = {
       id: route.routeId,
@@ -342,7 +342,7 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
     }
 
     const shiftStartEpoch = new Date(route.routeStartTime).getTime() / 1000;
-    const shiftEndEpoch = shiftStartEpoch + 24 * 3600;
+    const shiftEndEpoch = shiftStartEpoch + 12 * 3600;
 
     const vehicle = {
       id: route.routeId,
