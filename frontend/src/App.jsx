@@ -99,6 +99,7 @@ function App() {
   const [clearingCache, setClearingCache] = useState(false);
   const [cacheMessage, setCacheMessage] = useState(null);
   const [optimizingRouteIds, setOptimizingRouteIds] = useState(new Set());
+  const [activeTab, setActiveTab] = useState('planned'); // 'planned' | 'full'
 
   const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
@@ -410,124 +411,153 @@ function App() {
           <FileUpload onFileUpload={handleFileUpload} loading={loading} />
         </div>
 
-        {/* Error Display */}
-        {error && (
-          <div className="mb-8 bg-red-50 border border-red-200 rounded-lg p-4">
-            <div className="flex">
-              <div className="flex-shrink-0">
-                <svg
-                  className="h-5 w-5 text-red-400"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 0 0-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 1 0 1.414 1.414L10 11.414l1.293 1.293a1 1 0 0 0 1.414-1.414L11.414 10l1.293-1.293a1 1 0 0 0-1.414-1.414L10 8.586 8.707 7.293z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </div>
-              <div className="ml-3">
-                <h3 className="text-sm font-medium text-red-800">Error</h3>
-                <p className="mt-1 text-sm text-red-700">{error}</p>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Tabs */}
+        <div className="border-b border-gray-200 mb-6">
+          <nav className="-mb-px flex space-x-6" aria-label="Tabs">
+            <button
+              type="button"
+              onClick={() => setActiveTab('planned')}
+              className={`${activeTab === 'planned' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+            >
+              Planned Routes
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('full')}
+              className={`${activeTab === 'full' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+            >
+              Full Optimization
+            </button>
+          </nav>
+        </div>
 
-        {/* Loading State */}
-        {loading && (
-          <div className="bg-white rounded-lg shadow p-8">
-            <div className="flex flex-col items-center justify-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-              <span className="mt-4 text-lg font-medium text-gray-900">Processing file...</span>
-              <p className="mt-2 text-sm text-gray-600 text-center max-w-md">
-                Parsing routes and geocoding all delivery addresses. This may take a few minutes for large files.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Data Display */}
-        {data && !loading && (
-          <div className="space-y-6">
-            {/* Summary Stats */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 justify-items-center">
-                <div className="text-center">
-                  <p className="text-sm font-medium text-gray-600">Total Routes</p>
-                  <p className="mt-2 text-3xl font-bold text-gray-900">
-                    {data.totalRoutes}
-                  </p>
-                </div>
-                <div className="text-center">
-                  <p className="text-sm font-medium text-gray-600">Total Deliveries</p>
-                  <p className="mt-2 text-3xl font-bold text-gray-900">
-                    {data.totalDeliveries}
-                  </p>
-                </div>
-                <div className="text-center">
-                  <p className="text-sm font-medium text-gray-600">Avg per Route</p>
-                  <p className="mt-2 text-3xl font-bold text-gray-900">
-                    {data.totalRoutes > 0
-                      ? (data.totalDeliveries / data.totalRoutes).toFixed(1)
-                      : 0}
-                  </p>
-                </div>
-              </div>
-
-              {/* Aggregate Optimization Totals */}
-              {totals && (
-                <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="bg-gray-50 rounded-lg p-4 text-center">
-                    <p className="text-sm font-medium text-gray-600">Sequenced</p>
-                    <p className="mt-2 text-2xl font-bold text-gray-900">{fmtMilesOrDash(totals.seq.distance)}</p>
-                    <p className="mt-1 text-sm text-gray-600">Distance</p>
-                    <p className="mt-2 text-2xl font-bold text-gray-900">{fmtSecondsOrDash(totals.seq.duration)}</p>
-                    <p className="mt-1 text-sm text-gray-600">Drive Time</p>
+        {/* Tab Content */}
+        {activeTab === 'planned' && (
+          <>
+            {/* Error Display */}
+            {error && (
+              <div className="mb-8 bg-red-50 border border-red-200 rounded-lg p-4">
+                <div className="flex">
+                  <div className="flex-shrink-0">
+                    <svg
+                      className="h-5 w-5 text-red-400"
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 0 0-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 1 0 1.414 1.414L10 11.414l1.293 1.293a1 1 0 0 0 1.414-1.414L11.414 10l1.293-1.293a1 1 0 0 0-1.414-1.414L10 8.586 8.707 7.293z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
                   </div>
-                  <div className="bg-gray-50 rounded-lg p-4 text-center">
-                    <p className="text-sm font-medium text-gray-600">Optimized</p>
-                    <p className="mt-2 text-2xl font-bold text-gray-900">{fmtMilesOrDash(totals.no.distance)}</p>
-                    <p className="mt-1 text-sm text-gray-600">Distance</p>
-                    <p className="mt-2 text-2xl font-bold text-gray-900">{fmtSecondsOrDash(totals.no.duration)}</p>
-                    <p className="mt-1 text-sm text-gray-600">Drive Time</p>
+                  <div className="ml-3">
+                    <h3 className="text-sm font-medium text-red-800">Error</h3>
+                    <p className="mt-1 text-sm text-red-700">{error}</p>
                   </div>
                 </div>
-              )}
-
-              <div className="mt-6 flex justify-end">
-                <button
-                  onClick={handleExportCSV}
-                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                >
-                  <svg
-                    className="mr-2 h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                    />
-                  </svg>
-                  Export to CSV
-                </button>
               </div>
-            </div>
+            )}
 
-            {/* Data Table */}
-            <DataTable
-              routes={data.routes}
-              fileName={data.fileName}
-              handleOptimizeRoute={handleOptimizeRoute}
-              handleOptimizeAll={handleOptimizeAll}
-              optimizingRouteIds={optimizingRouteIds}
-            />
-          </div>
+            {/* Loading State */}
+            {loading && (
+              <div className="bg-white rounded-lg shadow p-8">
+                <div className="flex flex-col items-center justify-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                  <span className="mt-4 text-lg font-medium text-gray-900">Processing file...</span>
+                  <p className="mt-2 text-sm text-gray-600 text-center max-w-md">
+                    Parsing routes and geocoding all delivery addresses. This may take a few minutes for large files.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Data Display */}
+            {data && !loading && (
+              <div className="space-y-6">
+                {/* Summary Stats */}
+                <div className="bg-white rounded-lg shadow p-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 justify-items-center">
+                    <div className="text-center">
+                      <p className="text-sm font-medium text-gray-600">Total Routes</p>
+                      <p className="mt-2 text-3xl font-bold text-gray-900">
+                        {data.totalRoutes}
+                      </p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-medium text-gray-600">Total Deliveries</p>
+                      <p className="mt-2 text-3xl font-bold text-gray-900">
+                        {data.totalDeliveries}
+                      </p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-medium text-gray-600">Avg per Route</p>
+                      <p className="mt-2 text-3xl font-bold text-gray-900">
+                        {data.totalRoutes > 0
+                          ? (data.totalDeliveries / data.totalRoutes).toFixed(1)
+                          : 0}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Aggregate Optimization Totals */}
+                  {totals && (
+                    <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="bg-gray-50 rounded-lg p-4 text-center">
+                        <p className="text-sm font-medium text-gray-600">Sequenced</p>
+                        <p className="mt-2 text-2xl font-bold text-gray-900">{fmtMilesOrDash(totals.seq.distance)}</p>
+                        <p className="mt-1 text-sm text-gray-600">Distance</p>
+                        <p className="mt-2 text-2xl font-bold text-gray-900">{fmtSecondsOrDash(totals.seq.duration)}</p>
+                        <p className="mt-1 text-sm text-gray-600">Drive Time</p>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-4 text-center">
+                        <p className="text-sm font-medium text-gray-600">Optimized</p>
+                        <p className="mt-2 text-2xl font-bold text-gray-900">{fmtMilesOrDash(totals.no.distance)}</p>
+                        <p className="mt-1 text-sm text-gray-600">Distance</p>
+                        <p className="mt-2 text-2xl font-bold text-gray-900">{fmtSecondsOrDash(totals.no.duration)}</p>
+                        <p className="mt-1 text-sm text-gray-600">Drive Time</p>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-6 flex justify-end">
+                    <button
+                      onClick={handleExportCSV}
+                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    >
+                      <svg
+                        className="mr-2 h-4 w-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                        />
+                      </svg>
+                      Export to CSV
+                    </button>
+                  </div>
+                </div>
+
+                {/* Data Table */}
+                <DataTable
+                  routes={data.routes}
+                  fileName={data.fileName}
+                  handleOptimizeRoute={handleOptimizeRoute}
+                  handleOptimizeAll={handleOptimizeAll}
+                  optimizingRouteIds={optimizingRouteIds}
+                />
+              </div>
+            )}
+          </>
+        )}
+
+        {activeTab === 'full' && (
+          <></>
         )}
       </main>
     </div>
