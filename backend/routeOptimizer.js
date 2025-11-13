@@ -53,24 +53,32 @@ function computeEndOfShift1700(routeDateTime) {
 
 function parseTimeToEpoch(timeStr, routeDateTime) {
   if (!timeStr || !routeDateTime) return 0;
-  const dateOnly = String(routeDateTime).split(' ')[0];
+  const dateOnly = String(routeDateTime).split(' ')[0]; // mm/dd/yyyy
   const t = String(timeStr).trim();
   const m = t.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?$/i);
-  if (!m) {
-    const d = new Date(`${dateOnly} ${t}`);
-    const epoch = Math.floor(d.getTime() / 1000);
-    const tzAdjust = getTimezoneOffsetSeconds(routeDateTime);
-    return Number.isFinite(epoch) ? epoch + tzAdjust : 0;
+  let hours, minutes, seconds;
+  if (m) {
+    hours = parseInt(m[1], 10);
+    minutes = parseInt(m[2], 10);
+    seconds = m[3] ? parseInt(m[3], 10) : 0;
+    const ampm = m[4] ? m[4].toLowerCase() : '';
+    if (ampm === 'pm' && hours !== 12) hours += 12;
+    if (ampm === 'am' && hours === 12) hours = 0;
+  } else {
+    // Fallback: try to parse HH:MM(:SS) without am/pm
+    const parts = t.split(':').map((x) => parseInt(x, 10));
+    if (parts.length >= 2 && parts.every((n) => Number.isFinite(n))) {
+      hours = parts[0]; minutes = parts[1]; seconds = parts[2] || 0;
+    } else {
+      return 0;
+    }
   }
-  let hours = parseInt(m[1], 10);
-  const minutes = parseInt(m[2], 10);
-  const seconds = m[3] ? parseInt(m[3], 10) : 0;
-  const ampm = m[4] ? m[4].toLowerCase() : '';
-  if (ampm === 'pm' && hours !== 12) hours += 12;
-  if (ampm === 'am' && hours === 12) hours = 0;
-  const d = new Date(`${dateOnly} ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
-  const tzAdjust = getTimezoneOffsetSeconds(routeDateTime);
-  return Math.floor(d.getTime() / 1000) + tzAdjust;
+  const [mm, dd, yyyy] = dateOnly.split('/').map((x) => parseInt(x, 10));
+  if (!Number.isFinite(mm) || !Number.isFinite(dd) || !Number.isFinite(yyyy)) return 0;
+  const tzHours = getTimezoneOffsetSeconds(routeDateTime) / 3600; // e.g., EDT -> 4
+  // Local time (zone UTC- tzHours) converted to UTC by adding tzHours
+  const epochMs = Date.UTC(yyyy, mm - 1, dd, hours + tzHours, minutes, seconds);
+  return Math.floor(epochMs / 1000);
 }
 
 function deriveTimeWindowEpochs(openCloseTime, routeDateTime, fallbackArrival, fallbackDepart) {
@@ -101,7 +109,7 @@ function deriveTimeWindowEpochs(openCloseTime, routeDateTime, fallbackArrival, f
 }
 
 async function submitAndPoll(requestBody, apiKey) {
-  const url = `https://api.nextbillion.io/optimization/v2?key=${apiKey}`;
+  const url = `https://sgpstg.nextbillion.io/optimization/v2?key=${apiKey}`;
   console.log('NB Optimization request URL:', url);
   console.log('NB Optimization request body:', JSON.stringify(requestBody, null, 2));
   let submitResp;
@@ -165,12 +173,13 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
     }
 
     const shiftStartEpoch = new Date(route.routeStartTime).getTime() / 1000;
-    const shiftEndEpoch = shiftStartEpoch + 12 * 3600;
+    const shiftEndSeqEpoch = shiftStartEpoch + 12 * 3600;
+    const shiftEndNoSeqEpoch = shiftStartEpoch + 20 * 3600;
 
     const vehicle = {
       id: route.routeId,
       description: `${route.routeId}-${route.driverName}-${route.deliveries.length}`,
-      time_window: [shiftStartEpoch, shiftEndEpoch],
+      time_window: [shiftStartEpoch, shiftEndSeqEpoch],
       start_index: depotIndex,
       end_index: depotIndex,
       layover_config: {
@@ -182,11 +191,11 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
 
     const vehicleSeq = {
       ...vehicle,
-      time_window: [shiftStartEpoch, shiftEndEpoch]
+      time_window: [shiftStartEpoch, shiftEndSeqEpoch]
     };
     const vehicleNoSeq = {
       ...vehicle,
-      time_window: [shiftStartEpoch, shiftEndEpoch]
+      time_window: [shiftStartEpoch, shiftEndNoSeqEpoch]
     };
 
     // 1) In-sequence run (sequence_order)
@@ -244,7 +253,7 @@ async function pollOptimizationStatus(requestId, apiKey) {
     let attempt = 0;
     while (true) {
       attempt += 1;
-      const pollUrl = `https://api.nextbillion.io/optimization/v2/result?id=${requestId}&key=${apiKey}`;
+      const pollUrl = `https://sgpstg.nextbillion.io/optimization/v2/result?id=${requestId}&key=${apiKey}`;
       console.log(`Polling URL: ${pollUrl}`);
       const response = await axios.get(pollUrl);
       const status = response.data.status || response.data.result?.status || 'error';
@@ -271,9 +280,10 @@ function convertToSecondsSafe(val) {
 
 function convertToEpoch(time, dateTimeStr) {
   if (!time || !dateTimeStr) return 0;
-  const base = new Date(`${dateTimeStr.split(' ')[0]} ${time}`);
-  const tzAdjust = getTimezoneOffsetSeconds(dateTimeStr);
-  return Math.floor(base.getTime() / 1000) + tzAdjust;
+  const dateOnly = String(dateTimeStr).split(' ')[0]; // mm/dd/yyyy
+  const t = String(time).trim();
+  // Reuse parseTimeToEpoch for robust handling
+  return parseTimeToEpoch(t, dateTimeStr);
 }
 
 // ---------------- Concurrency helpers & optimizer -----------------
@@ -342,12 +352,13 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
     }
 
     const shiftStartEpoch = new Date(route.routeStartTime).getTime() / 1000;
-    const shiftEndEpoch = shiftStartEpoch + 12 * 3600;
+    const shiftEndSeqEpoch = shiftStartEpoch + 12 * 3600;
+    const shiftEndNoSeqEpoch = shiftStartEpoch + 20 * 3600;
 
     const vehicle = {
       id: route.routeId,
       description: `${route.routeId}-${route.driverName}-${route.deliveries.length}`,
-      time_window: [shiftStartEpoch, shiftEndEpoch],
+      time_window: [shiftStartEpoch, shiftEndSeqEpoch],
       start_index: depotIndex,
       end_index: depotIndex,
       layover_config: { max_continuous_time: 18000, layover_duration: 1800, include_service_time: true }
@@ -355,11 +366,11 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
 
     const vehicleSeq = {
       ...vehicle,
-      time_window: [shiftStartEpoch, shiftEndEpoch]
+      time_window: [shiftStartEpoch, shiftEndSeqEpoch]
     };
     const vehicleNoSeq = {
       ...vehicle,
-      time_window: [shiftStartEpoch, shiftEndEpoch]
+      time_window: [shiftStartEpoch, shiftEndNoSeqEpoch]
     };
 
     let seq = 1;
@@ -388,11 +399,11 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
     };
 
     // Submit both runs under submit limiter
-    console.log('NB Optimization (All) request URL:', 'https://api.nextbillion.io/optimization/v2?key=***');
+    console.log('NB Optimization (All) request URL:', 'https://sgpstg.nextbillion.io/optimization/v2?key=***');
     console.log('NB Optimization (All) in-sequence body:', JSON.stringify(requestBodySeq, null, 2));
     const submitSeq = await submitLimit(async () => {
       try {
-        return await axios.post(`https://api.nextbillion.io/optimization/v2?key=${apiKey}`, requestBodySeq, { headers: { 'Content-Type': 'application/json' } });
+        return await axios.post(`https://sgpstg.nextbillion.io/optimization/v2?key=${apiKey}`, requestBodySeq, { headers: { 'Content-Type': 'application/json' } });
       } catch (err) {
         console.error('NB Optimization (All) in-sequence submit error:', describeAxiosError(err));
         throw new Error(describeAxiosError(err));
@@ -401,7 +412,7 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
     console.log('NB Optimization (All) no-sequence body:', JSON.stringify(requestBodyNoSeq, null, 2));
     const submitNo  = await submitLimit(async () => {
       try {
-        return await axios.post(`https://api.nextbillion.io/optimization/v2?key=${apiKey}`, requestBodyNoSeq, { headers: { 'Content-Type': 'application/json' } });
+        return await axios.post(`https://sgpstg.nextbillion.io/optimization/v2?key=${apiKey}`, requestBodyNoSeq, { headers: { 'Content-Type': 'application/json' } });
       } catch (err) {
         console.error('NB Optimization (All) no-sequence submit error:', describeAxiosError(err));
         throw new Error(describeAxiosError(err));
