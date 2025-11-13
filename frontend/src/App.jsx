@@ -9,6 +9,26 @@ function toFixed6(num) {
   return n.toFixed(6);
 }
 
+function deriveVehicleCapacity(equipmentTypeId) {
+  const s = String(equipmentTypeId || '').trim();
+  if (s.startsWith('40LG')) {
+    return { weight: 29000, pallets: 22 };
+  }
+  if (s.startsWith('32LG')) {
+    return { weight: 25000, pallets: 18 };
+  }
+  if (s.startsWith('28LG')) {
+    return { weight: 18000, pallets: 16 };
+  }
+  if (s.startsWith('48LG')) {
+    return { weight: 35000, pallets: 32 };
+  }
+  if (s.startsWith('18BT')) {
+    return { weight: 12000, pallets: 12 };
+  }
+  return { weight: '', pallets: '' };
+}
+
 function pad2(n) {
   return String(n).padStart(2, '0');
 }
@@ -33,6 +53,18 @@ function computeShiftEndPlus12h(startTimeStr) {
   return `${mm}/${dd}/${yyyy} ${HH}:${MM}:${SS}${tz}`;
 }
 
+function parseEpochFromStart(startTimeStr) {
+  if (!startTimeStr) return 0;
+  const s = String(startTimeStr).trim();
+  const m = s.match(/(\d{1,2}\/\d{1,2}\/\d{4})\s+(\d{2}:\d{2}:\d{2})/);
+  if (!m) {
+    const d = new Date(s);
+    return Number.isFinite(d.getTime()) ? Math.floor(d.getTime() / 1000) : 0;
+  }
+  const d = new Date(`${m[1]} ${m[2]}`);
+  return Number.isFinite(d.getTime()) ? Math.floor(d.getTime() / 1000) : 0;
+}
+
 function formatLatLngString(value) {
   if (!value) return '';
   const parts = String(value).split(',');
@@ -41,6 +73,13 @@ function formatLatLngString(value) {
   const lng = toFixed6(parts[1].trim());
   if (lat === '' || lng === '') return value;
   return `${lat},${lng}`;
+}
+
+function toNumber(value) {
+  if (value == null) return NaN;
+  const s = String(value).replace(/,/g, '').trim();
+  const n = Number(s);
+  return Number.isFinite(n) ? n : NaN;
 }
 
 function depotFromFileName(fileName) {
@@ -149,6 +188,8 @@ function App() {
   const [activeTab, setActiveTab] = useState('planned'); // 'planned' | 'full'
   const [selectedVehicleIds, setSelectedVehicleIds] = useState(new Set());
   const [selectedDeliveryKeys, setSelectedDeliveryKeys] = useState(new Set());
+  const [fullOptRequestId, setFullOptRequestId] = useState(null);
+  const [fullOptRunning, setFullOptRunning] = useState(false);
 
   // Initialize selections to "all selected" when new data is loaded
   useEffect(() => {
@@ -630,6 +671,132 @@ function App() {
 
         {activeTab === 'full' && (
           <>
+            {/* Optimize toolbar */}
+            <div className="mb-4 flex items-center justify-between">
+              <div className="text-sm text-gray-700">
+                {fullOptRequestId ? (
+                  <span>Request ID: <span className="font-mono">{fullOptRequestId}</span></span>
+                ) : (
+                  <span className="text-gray-500">No request submitted</span>
+                )}
+              </div>
+              <button
+                type="button"
+                className="inline-flex items-center bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm py-2 px-4 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={fullOptRunning}
+                onClick={async () => {
+                  try {
+                    setFullOptRunning(true);
+                    const routes = data?.routes || [];
+                    const depot = depotFromFileName(data?.fileName);
+                    const indexByCoord = new Map();
+                    const locations = [];
+                    const getIndexForCoord = (latlng) => {
+                      const key = formatLatLngString(latlng);
+                      if (!indexByCoord.has(key)) {
+                        indexByCoord.set(key, locations.length);
+                        locations.push(key);
+                      }
+                      return indexByCoord.get(key);
+                    };
+
+                    // Vehicles from selectedVehicleIds
+                    const vehicles = [];
+                    routes.forEach((route, idx) => {
+                      const routeId = String(route.routeId ?? idx);
+                      if (!selectedVehicleIds.has(routeId)) return;
+                      const startLoc = (() => {
+                        if (depot) return depot;
+                        const first = (route.deliveries || []).find((d) => d?.geocode?.success && d?.geocode?.latitude && d?.geocode?.longitude);
+                        return first ? formatLatLngString(`${first.geocode.latitude},${first.geocode.longitude}`) : '';
+                      })();
+                      const startIdx = getIndexForCoord(startLoc);
+                      const startEpoch = parseEpochFromStart(route.routeStartTime || '');
+                      const endEpoch = startEpoch + 12 * 3600;
+                      const cap = deriveVehicleCapacity(route.equipmentType || '');
+                      vehicles.push({
+                        id: routeId,
+                        description: `${routeId}-${route.driverName || ''}`,
+                        time_window: [startEpoch, endEpoch],
+                        start_index: startIdx,
+                        end_index: startIdx,
+                        layover_config: { max_continuous_time: 18000, layover_duration: 1800, include_service_time: true },
+                        capacity: [
+                          Number.isFinite(cap.weight) ? cap.weight * 10 : 0, // weight constraint times 10
+                          Number.isFinite(cap.pallets) ? cap.pallets : 0     // pallet capacity
+                        ]
+                      });
+                    });
+
+                    // Jobs from selectedDeliveryKeys
+                    const jobs = [];
+                    routes.forEach((route, rIndex) => {
+                      (route.deliveries || []).forEach((d, dIndex) => {
+                        const key = `${route.routeId ?? rIndex}::${dIndex}`;
+                        if (!selectedDeliveryKeys.has(key)) return;
+                        if (d?.isBreak) return;
+                        const lat = d?.geocode?.latitude ?? d?.latitude;
+                        const lng = d?.geocode?.longitude ?? d?.longitude;
+                        if (lat == null || lng == null) return;
+                        const locIdx = getIndexForCoord(`${lat},${lng}`);
+                        const palletsNum = toNumber(d.cube || d.pallets || '');
+                        const weightNum = toNumber(d.weight || '');
+                        const adjPallets = Number.isFinite(palletsNum) ? Math.ceil(palletsNum) : 0;
+                        const adjWeight = Number.isFinite(weightNum) ? Math.round(weightNum * 10) : 0; // ensure whole integer
+                        jobs.push({
+                          id: `${d.locationId || ''}-${route.routeId || rIndex}-${dIndex}`,
+                          location_index: locIdx,
+                          service: 0,
+                          delivery: [
+                            adjWeight,   // Adj. Weight (weight*10 as integer)
+                            adjPallets   // Adj. Pallets (rounded up)
+                          ]
+                        });
+                      });
+                    });
+
+                    const requestBody = {
+                      locations: { location: locations },
+                      vehicles,
+                      jobs,
+                      options: { routing: { mode: 'truck', traffic_timestamp: 1760648400 }, objective: { travel_cost: 'duration' } },
+                      description: 'Full Optimization (selected vehicles and deliveries)'
+                    };
+                    console.log('Full Optimization request body:', JSON.stringify(requestBody, null, 2));
+                    // Submit to backend which will poll until complete
+                    const resp = await fetch('/api/optimize-full', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ requestBody })
+                    });
+                    if (!resp.ok) {
+                      const txt = await resp.text();
+                      console.error('optimize-full error response:', txt);
+                      throw new Error('Full optimization failed');
+                    }
+                    const { requestId } = await resp.json();
+                    setFullOptRequestId(requestId || null);
+                  } catch (e) {
+                    console.error('Error building Full Optimization request:', e);
+                  } finally {
+                    setFullOptRunning(false);
+                  }
+                }}
+              >
+                {fullOptRunning ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Optimizing...
+                  </>
+                ) : (
+                  'Optimize'
+                )}
+              </button>
+            </div>
+
             {/* Build vehicles and deliveries (excluding Paid Break) */}
             {(() => {
               const routes = data?.routes || [];
@@ -644,6 +811,7 @@ function App() {
               const vehicles = routes.map((route, idx) => {
                 const startLoc = computeStartLocation(route);
                 const endLoc = startLoc; // Same rules as sequenced and non-sequenced (start=end=depot)
+                const cap = deriveVehicleCapacity(route.equipmentType || '');
                 return {
                   id: String(route.routeId ?? idx),
                   equipmentTypeId: route.equipmentType || '',
@@ -651,8 +819,8 @@ function App() {
                   driverName: route.driverName || '',
                   startTime: route.routeStartTime || '',
                   endTime: computeShiftEndPlus12h(route.routeStartTime || '') || '',
-                  capacityWeight: '', // placeholder
-                  capacityPallets: '', // placeholder
+                  capacityWeight: cap.weight,
+                  capacityPallets: cap.pallets,
                   startLocation: startLoc,
                   endLocation: endLoc,
                 };
@@ -661,14 +829,20 @@ function App() {
               routes.forEach((route, rIndex) => {
                 (route.deliveries || []).forEach((d, dIndex) => {
                   if (d?.isBreak) return; // exclude Paid Break Time
+                  const palletsRaw = d.cube || d.pallets || '';
+                  const palletsNum = toNumber(palletsRaw);
+                  const weightRaw = d.weight || '';
+                  const weightNum = toNumber(weightRaw);
                   deliveries.push({
                     key: `${route.routeId ?? rIndex}::${dIndex}`,
                     locationId: d.locationId || '',
                     locationName: d.locationName || '',
                     address: d.address || '',
                     serviceWindows: d.serviceWindows || d.openCloseTime || '',
-                    weight: d.weight || '',
-                    pallets: d.cube || '',
+                    weight: weightRaw,
+                    adjWeight: Number.isFinite(weightNum) ? String(weightNum * 10) : '',
+                    pallets: palletsRaw,
+                    adjPallets: Number.isFinite(palletsNum) ? Math.ceil(palletsNum) : '',
                   });
                 });
               });
@@ -775,7 +949,9 @@ function App() {
                             <th className="px-4 py-3 text-left font-medium text-gray-700">Address</th>
                             <th className="px-4 py-3 text-left font-medium text-gray-700">Service Windows</th>
                             <th className="px-4 py-3 text-left font-medium text-gray-700">Weight</th>
+                            <th className="px-4 py-3 text-left font-medium text-gray-700">Adj. Weight</th>
                             <th className="px-4 py-3 text-left font-medium text-gray-700">Pallets</th>
+                            <th className="px-4 py-3 text-left font-medium text-gray-700">Adj. Pallets</th>
                           </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
@@ -793,7 +969,9 @@ function App() {
                               <td className="px-4 py-3">{d.address || '—'}</td>
                               <td className="px-4 py-3 whitespace-nowrap">{d.serviceWindows || '—'}</td>
                               <td className="px-4 py-3 whitespace-nowrap">{d.weight || '—'}</td>
+                              <td className="px-4 py-3 whitespace-nowrap">{d.adjWeight || '—'}</td>
                               <td className="px-4 py-3 whitespace-nowrap">{d.pallets || '—'}</td>
+                              <td className="px-4 py-3 whitespace-nowrap">{d.adjPallets || '—'}</td>
                             </tr>
                           ))}
                         </tbody>

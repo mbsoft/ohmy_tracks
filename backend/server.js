@@ -6,7 +6,7 @@ const multer = require('multer');
 const path = require('path');
 const { parseOmnitracXLS } = require('./parser');
 const { geocodeRoutes } = require('./geocoding');
-const { optimizeRoutes, optimizeAllRoutes } = require('./routeOptimizer');
+const { optimizeRoutes, optimizeAllRoutes, optimizeCustom } = require('./routeOptimizer');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -77,6 +77,21 @@ app.post('/api/optimize-all', async (req, res) => {
   } catch (error) {
     console.error('Error optimizing all routes:', error);
     res.status(500).json({ error: 'Failed to optimize all routes', details: error.message });
+  }
+});
+
+// Full optimization: submit arbitrary request body and poll on the server
+app.post('/api/optimize-full', async (req, res) => {
+  try {
+    const { requestBody } = req.body;
+    if (!requestBody || typeof requestBody !== 'object') {
+      return res.status(400).json({ error: 'Missing requestBody' });
+    }
+    const { result, requestId } = await optimizeCustom(requestBody, process.env);
+    res.json({ requestId, result });
+  } catch (error) {
+    console.error('Error in optimize-full:', error);
+    res.status(500).json({ error: 'Failed to run full optimization', details: error.message });
   }
 });
 

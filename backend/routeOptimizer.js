@@ -438,4 +438,13 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
   return { routes: results };
 }
 
-module.exports = { optimizeRoutes, optimizeAllRoutes };
+async function optimizeCustom(requestBody, env) {
+  const apiKey = env.NEXTBILLION_API_KEY || env.NB_API_KEY || env.NB_KEY;
+  if (!apiKey) {
+    throw new Error('NEXTBILLION_API_KEY is not configured on the server');
+  }
+  const { result, requestId } = await submitAndPoll(requestBody, apiKey);
+  return { result, requestId };
+}
+
+module.exports = { optimizeRoutes, optimizeAllRoutes, optimizeCustom };
