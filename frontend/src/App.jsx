@@ -82,6 +82,24 @@ function toNumber(value) {
   return Number.isFinite(n) ? n : NaN;
 }
 
+function serviceToSeconds(val) {
+  if (val == null) return 0;
+  if (typeof val === 'number' && Number.isFinite(val)) {
+    return Math.max(0, Math.round(val));
+  }
+  const parts = String(val).trim().split(':').map((x) => Number(x));
+  if (parts.length === 3 && parts.every((n) => Number.isFinite(n))) {
+    const [h, m, s] = parts;
+    return Math.max(0, h * 3600 + m * 60 + s);
+  }
+  if (parts.length === 2 && parts.every((n) => Number.isFinite(n))) {
+    const [h, m] = parts;
+    return Math.max(0, h * 3600 + m * 60);
+  }
+  const n = Number(String(val).trim());
+  return Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0;
+}
+
 function depotFromFileName(fileName) {
   if (!fileName) return '';
   if (fileName.startsWith('ATL')) return formatLatLngString('33.807970,-84.436960');
@@ -743,10 +761,11 @@ function App() {
                         const weightNum = toNumber(d.weight || '');
                         const adjPallets = Number.isFinite(palletsNum) ? Math.ceil(palletsNum) : 0;
                         const adjWeight = Number.isFinite(weightNum) ? Math.round(weightNum * 10) : 0; // ensure whole integer
+                        const serviceSeconds = serviceToSeconds(d.service);
                         jobs.push({
                           id: `${d.locationId || ''}-${route.routeId || rIndex}-${dIndex}`,
                           location_index: locIdx,
-                          service: 0,
+                          service: serviceSeconds,
                           delivery: [
                             adjWeight,   // Adj. Weight (weight*10 as integer)
                             adjPallets   // Adj. Pallets (rounded up)
@@ -839,6 +858,7 @@ function App() {
                     locationName: d.locationName || '',
                     address: d.address || '',
                     serviceWindows: d.serviceWindows || d.openCloseTime || '',
+                    service: d.service || '',
                     weight: weightRaw,
                     adjWeight: Number.isFinite(weightNum) ? String(weightNum * 10) : '',
                     pallets: palletsRaw,
@@ -948,6 +968,7 @@ function App() {
                             <th className="px-4 py-3 text-left font-medium text-gray-700">Location Name</th>
                             <th className="px-4 py-3 text-left font-medium text-gray-700">Address</th>
                             <th className="px-4 py-3 text-left font-medium text-gray-700">Service Windows</th>
+                            <th className="px-4 py-3 text-left font-medium text-gray-700">Service</th>
                             <th className="px-4 py-3 text-left font-medium text-gray-700">Weight</th>
                             <th className="px-4 py-3 text-left font-medium text-gray-700">Adj. Weight</th>
                             <th className="px-4 py-3 text-left font-medium text-gray-700">Pallets</th>
@@ -968,6 +989,7 @@ function App() {
                               <td className="px-4 py-3">{d.locationName || '—'}</td>
                               <td className="px-4 py-3">{d.address || '—'}</td>
                               <td className="px-4 py-3 whitespace-nowrap">{d.serviceWindows || '—'}</td>
+                              <td className="px-4 py-3 whitespace-nowrap">{d.service || '—'}</td>
                               <td className="px-4 py-3 whitespace-nowrap">{d.weight || '—'}</td>
                               <td className="px-4 py-3 whitespace-nowrap">{d.adjWeight || '—'}</td>
                               <td className="px-4 py-3 whitespace-nowrap">{d.pallets || '—'}</td>
