@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react'; // Removed useEffect since WebSocket is not needed
+import React, { useState, useEffect } from 'react';
 import FileUpload from './components/FileUpload';
 import DataTable from './components/DataTable';
+import LoginPage from './components/LoginPage';
 import { exportToCSV } from './utils/csvExport';
 
 function toFixed6(num) {
@@ -8,7 +9,7 @@ function toFixed6(num) {
   if (!Number.isFinite(n)) return '';
   return n.toFixed(6);
 }
-
+// ... (keep all the helper functions from the original file)
 function deriveVehicleCapacity(equipmentTypeId) {
   const s = String(equipmentTypeId || '').trim();
   if (s.startsWith('40LG')) {
@@ -197,6 +198,7 @@ function extractLayoverTimes(steps) {
 }
 
 function App() {
+  const [token, setToken] = useState(localStorage.getItem('authToken'));
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -208,6 +210,16 @@ function App() {
   const [selectedDeliveryKeys, setSelectedDeliveryKeys] = useState(new Set());
   const [fullOptRequestId, setFullOptRequestId] = useState(null);
   const [fullOptRunning, setFullOptRunning] = useState(false);
+
+  const handleLogin = (newToken) => {
+    localStorage.setItem('authToken', newToken);
+    setToken(newToken);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('authToken');
+    setToken(null);
+  };
 
   // Initialize selections to "all selected" when new data is loaded
   useEffect(() => {
@@ -260,6 +272,7 @@ function App() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify(payload)
       });
@@ -318,6 +331,9 @@ function App() {
 
       const response = await fetch('/api/upload', {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
         body: formData,
         signal: controller.signal,
       });
@@ -358,7 +374,10 @@ function App() {
       };
       const response = await fetch('/api/optimize-all', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
         body: JSON.stringify(payload),
       });
       if (!response.ok) {
@@ -419,6 +438,9 @@ function App() {
     try {
       const response = await fetch('/api/cache/clear', {
         method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
       });
 
       const result = await response.json();
@@ -429,6 +451,7 @@ function App() {
           text: result.message
         });
         console.log(`Cache cleared: ${result.entriesCleared} entries removed`);
+.
       } else {
         throw new Error(result.details || 'Failed to clear cache');
       }
@@ -468,6 +491,10 @@ function App() {
 
   const totals = data?.routes ? aggregateTotals(data.routes) : null;
 
+  if (!token) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
+
   return (
     <div className="min-h-screen bg-gray-100">
       {/* Header */}
@@ -482,31 +509,39 @@ function App() {
                 Upload and analyze stop list reports
               </p>
             </div>
-            {isLocalhost && (
+            <div className="flex items-center">
+              {isLocalhost && (
+                <button
+                  onClick={handleClearCache}
+                  disabled={clearingCache}
+                  className="inline-flex items-center px-4 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed mr-4"
+                  title="Clear all cached geocoding results"
+                >
+                  {clearingCache ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-red-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Clearing...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                      Clear Cache
+                    </>
+                  )}
+                </button>
+              )}
               <button
-                onClick={handleClearCache}
-                disabled={clearingCache}
-                className="inline-flex items-center px-4 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Clear all cached geocoding results"
+                onClick={handleLogout}
+                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
               >
-                {clearingCache ? (
-                  <>
-                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-red-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Clearing...
-                  </>
-                ) : (
-                  <>
-                    <svg className="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                    Clear Cache
-                  </>
-                )}
+                Logout
               </button>
-            )}
+            </div>
           </div>
         </div>
       </header>
@@ -787,7 +822,10 @@ function App() {
                     // Submit to backend which will poll until complete
                     const resp = await fetch('/api/optimize-full', {
                       method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`,
+                      },
                       body: JSON.stringify({ requestBody })
                     });
                     if (!resp.ok) {
@@ -1017,4 +1055,3 @@ function App() {
 }
 
 export default App;
-
