@@ -1,7 +1,7 @@
 {
   "40LG": { "weight": 29000, "pallets": 22 },
   "32LG": { "weight": 25000, "pallets": 18 },
-  "28LG": { "weight": 18000, "pallets": 16 },
+  "28LG": { "weight": 20000, "pallets": 18 },
   "48LG": { "weight": 35000, "pallets": 32 },
   "18BT": { "weight": 12000, "pallets": 12 }
 }

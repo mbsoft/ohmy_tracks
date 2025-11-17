@@ -3,6 +3,8 @@ node_modules
 npm-debug.log
 .env
 .env*.local
+backend/dist/*
+frontend/dist/*
 
 # Temp files
 *.tmp
