@@ -558,9 +558,12 @@ function App() {
           acc.no.duration += noSeq.duration || 0;
           acc.no.service += noSeq.service || 0;
         }
+        // accumulate per-route stats
+        acc.routes += 1;
+        acc.stops += route.deliveries?.length ?? 0;
         return acc;
       },
-      { seq: { distance: 0, duration: 0, service: 0 }, no: { distance: 0, duration: 0, service: 0 } }
+      { seq: { distance: 0, duration: 0, service: 0 }, no: { distance: 0, duration: 0, service: 0 }, routes: 0, stops: 0 }
     );
   };
 
@@ -727,24 +730,16 @@ function App() {
                 <div className="bg-white rounded-lg shadow p-6">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6 justify-items-center">
                     <div className="text-center">
-                      <p className="text-sm font-medium text-gray-600">Total Routes</p>
-                      <p className="mt-2 text-3xl font-bold text-gray-900">
-                        {data.totalRoutes}
-                      </p>
+                      <p className="text-sm font-medium text-gray-600">Selected Routes</p>
+                      <p className="mt-2 text-3xl font-bold text-gray-900">{totals?.routes ?? 0}</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-sm font-medium text-gray-600">Total Deliveries</p>
-                      <p className="mt-2 text-3xl font-bold text-gray-900">
-                        {data.totalDeliveries}
-                      </p>
+                      <p className="text-sm font-medium text-gray-600">Selected Stops</p>
+                      <p className="mt-2 text-3xl font-bold text-gray-900">{totals?.stops ?? 0}</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-sm font-medium text-gray-600">Avg per Route</p>
-                      <p className="mt-2 text-3xl font-bold text-gray-900">
-                        {data.totalRoutes > 0
-                          ? (data.totalDeliveries / data.totalRoutes).toFixed(1)
-                          : 0}
-                      </p>
+                      <p className="text-sm font-medium text-gray-600">Avg Stops per Route</p>
+                      <p className="mt-2 text-3xl font-bold text-gray-900">{totals?.routes && totals.routes > 0 ? (totals.stops / totals.routes).toFixed(1) : 0}</p>
                     </div>
                   </div>
 
