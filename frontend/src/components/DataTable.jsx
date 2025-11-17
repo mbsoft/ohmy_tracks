@@ -274,8 +274,8 @@ function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingR
                       {routes[routeIndex].deliveries.map((delivery, deliveryIndex) => (
                         <tr key={deliveryIndex} className="hover:bg-blue-100 transition-colors">
                           <td className="px-5 py-3 whitespace-nowrap text-blue-900">
-                            {delivery.stopNumber || '-'}
-                            {delivery.NB_ORDER ? `(${delivery.NB_ORDER})` : ''}
+                            {delivery.isDepotResupply ? 'Depot' : (delivery.stopNumber || '-')}
+                            {!delivery.isDepotResupply && delivery.NB_ORDER ? `(${delivery.NB_ORDER})` : ''}
                           </td>
                           <td className="px-5 py-3 whitespace-nowrap text-blue-900">{delivery.locationId || '-'}</td>
                           <td className="px-5 py-3 text-blue-900">{delivery.locationName || '-'}</td>

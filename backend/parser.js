@@ -118,6 +118,74 @@ function parseOmnitracXLS(buffer) {
           isBreak: true
         });
       }
+      // Parse Depot resupply row (e.g., "Depot ...", next line has address and CS/PAL/WGT)
+      else if (String(firstCell).toLowerCase() === 'depot') {
+        const arrivalRaw = String(row[8] || '').trim();
+        const arrival = arrivalRaw.includes('/') ? arrivalRaw.split('/')[0].trim() : arrivalRaw;
+        const departRaw = String(row[11] || '').trim();
+        const depart = departRaw.includes('/') ? departRaw.split('/')[0].trim() : departRaw;
+        const service = String(row[13] || '').trim();
+        // The primary row often shows 0.00 for pallets/weight; actual pickup appears on the next "Address" row.
+        // Try to read from the next row; fall back to current row if not found.
+        const nextRow = data[i + 1] || [];
+        const address = String(nextRow[1] || '').trim();
+        // Extract ordered numeric tokens from the next row; the final three are typically CS, PAL, WGT
+        const numsOrdered = [];
+        for (const cell of nextRow) {
+          const s = String(cell || '');
+          const matches = s.match(/-?\d{1,3}(?:,\d{3})*(?:\.\d+)?|-?\d+(?:\.\d+)?/g);
+          if (matches) {
+            for (const token of matches) {
+              const n = Number(String(token).replace(/,/g, ''));
+              if (Number.isFinite(n)) numsOrdered.push(n);
+            }
+          }
+        }
+        let pallets = String(row[18] || '').trim();
+        let weightFromNext = '';
+        if (numsOrdered.length >= 3) {
+          // Take the last three numeric tokens as [CS, PAL, WGT]
+          const cs = numsOrdered[numsOrdered.length - 3];
+          const pal = numsOrdered[numsOrdered.length - 2];
+          const wgt = numsOrdered[numsOrdered.length - 1];
+          if (Number.isFinite(pal)) pallets = String(Math.round(pal));
+          if (Number.isFinite(wgt)) weightFromNext = String(Math.round(wgt));
+        } else {
+          // Fallback: choose the largest as weight and last small integer as pallets
+          const palletCand = numsOrdered.filter((n) => n > 0 && n <= 100);
+          if (palletCand.length) pallets = String(Math.round(palletCand[palletCand.length - 1]));
+          const weightCand = numsOrdered.filter((n) => n >= 1000);
+          if (weightCand.length) weightFromNext = String(Math.round(weightCand.sort((a,b)=>a-b)[weightCand.length - 1]));
+        }
+        // Prefer the canonical PAL/WGT columns if present on the next row
+        const palCol = String(nextRow[18] || '').trim();
+        const wgtCol = String(nextRow[20] || '').trim();
+        const palColNum = Number(String(palCol).replace(/,/g, ''));
+        const wgtColNum = Number(String(wgtCol).replace(/,/g, ''));
+        if (Number.isFinite(palColNum) && palColNum > 0) pallets = String(Math.round(palColNum));
+        if (Number.isFinite(wgtColNum) && wgtColNum > 0) weightFromNext = String(Math.round(wgtColNum));
+        const gross = String(row[20] || '').trim();
+        let weight = weightFromNext || (gross ? gross.replace(/,/g, '') : '');
+
+        currentRoute.deliveries.push({
+          stopNumber: '',
+          locationId: String(row[1] || '').trim(),
+          locationName: locationNameCell || 'Depot',
+          arrival,
+          depart,
+          service,
+          weight,
+          cube: pallets,
+          gross: gross,
+          address,
+          phoneNumber: '',
+          openCloseTime: '',
+          serviceWindows: '',
+          standardInstructions: '',
+          specialInstructions: '',
+          isDepotResupply: true
+        });
+      }
     }
     
     i++;
