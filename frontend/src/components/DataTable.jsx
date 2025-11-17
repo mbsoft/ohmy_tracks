@@ -47,7 +47,7 @@ function depotFromFileName(fileName) {
 
 function getRequestIdUrl(requestId) {
   if (!requestId) return null;
-  return `https://console.nextbillion.ai/route-planner-dev?t=solution&request_id=${requestId}`;
+  return `https://console.nextbillion.ai/route-planner/solution?request_id=${requestId}`;
 }
 
 function RequestIdLink({ requestId }) {

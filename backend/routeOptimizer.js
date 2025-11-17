@@ -119,7 +119,7 @@ function deriveTimeWindowEpochs(openCloseTime, routeDateTime, fallbackArrival, f
 }
 
 async function submitAndPoll(requestBody, apiKey) {
-  const url = `https://sgpstg.nextbillion.io/optimization/v2?key=${apiKey}`;
+  const url = `https://api.nextbillion.io/optimization/v2?key=${apiKey}`;
   console.log('NB Optimization request URL:', url);
   console.log('NB Optimization request body:', JSON.stringify(requestBody, null, 2));
   let submitResp;
@@ -241,7 +241,7 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
       locations: { location: locations },
       vehicles: [vehicleSeq],
       jobs: jobsInSeq,
-      options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: true},objective: { travel_cost: 'duration' } },
+      options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: false},objective: { travel_cost: 'duration' } },
       description: `Optimization (in-sequence) for ${route.routeId}`
     };
     const { result: resultInSeq, requestId: requestIdInSeq } = await submitAndPoll(requestBodySeq, apiKey);
@@ -251,7 +251,7 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
       locations: { location: locations },
       vehicles: [vehicleNoSeq],
       jobs: baseJobsNoSeq,
-      options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: true},objective: { travel_cost: 'duration' } },
+      options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: false},objective: { travel_cost: 'duration' } },
       description: `Optimization (no sequence) for ${route.routeId}`
     };
     const { result: resultNoSeq, requestId: requestIdNoSeq } = await submitAndPoll(requestBodyNoSeq, apiKey);
@@ -282,7 +282,7 @@ async function pollOptimizationStatus(requestId, apiKey) {
     let attempt = 0;
     while (true) {
       attempt += 1;
-      const pollUrl = `https://sgpstg.nextbillion.io/optimization/v2/result?id=${requestId}&key=${apiKey}`;
+      const pollUrl = `https://api.nextbillion.io/optimization/v2/result?id=${requestId}&key=${apiKey}`;
       console.log(`Polling URL: ${pollUrl}`);
       const response = await axios.get(pollUrl);
       const status = response.data.status || response.data.result?.status || 'error';
@@ -441,23 +441,23 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
       locations: { location: locations },
       vehicles: [vehicleSeq],
       jobs: jobsInSeq,
-      options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: true}, objective: { travel_cost: 'duration' } },
+      options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: false}, objective: { travel_cost: 'duration' } },
       description: `Optimization (in-sequence) for ${route.routeId}`
     };
     const requestBodyNoSeq = {
       locations: { location: locations },
       vehicles: [vehicleNoSeq],
       jobs: baseJobsNoSeq,
-      options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: true}, objective: { travel_cost: 'duration' } },
+      options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: false}, objective: { travel_cost: 'duration' } },
       description: `Optimization (no sequence) for ${route.routeId}`
     };
 
     // Submit both runs under submit limiter
-    console.log('NB Optimization (All) request URL:', 'https://sgpstg.nextbillion.io/optimization/v2?key=***');
+    console.log('NB Optimization (All) request URL:', 'https://api.nextbillion.io/optimization/v2?key=***');
     console.log('NB Optimization (All) in-sequence body:', JSON.stringify(requestBodySeq, null, 2));
     const submitSeq = await submitLimit(async () => {
       try {
-        return await axios.post(`https://sgpstg.nextbillion.io/optimization/v2?key=${apiKey}`, requestBodySeq, { headers: { 'Content-Type': 'application/json' } });
+        return await axios.post(`https://api.nextbillion.io/optimization/v2?key=${apiKey}`, requestBodySeq, { headers: { 'Content-Type': 'application/json' } });
       } catch (err) {
         console.error('NB Optimization (All) in-sequence submit error:', describeAxiosError(err));
         throw new Error(describeAxiosError(err));
@@ -466,7 +466,7 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
     console.log('NB Optimization (All) no-sequence body:', JSON.stringify(requestBodyNoSeq, null, 2));
     const submitNo  = await submitLimit(async () => {
       try {
-        return await axios.post(`https://sgpstg.nextbillion.io/optimization/v2?key=${apiKey}`, requestBodyNoSeq, { headers: { 'Content-Type': 'application/json' } });
+        return await axios.post(`https://api.nextbillion.io/optimization/v2?key=${apiKey}`, requestBodyNoSeq, { headers: { 'Content-Type': 'application/json' } });
       } catch (err) {
         console.error('NB Optimization (All) no-sequence submit error:', describeAxiosError(err));
         throw new Error(describeAxiosError(err));
