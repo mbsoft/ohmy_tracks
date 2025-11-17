@@ -4,18 +4,19 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 const jwt = require('jsonwebtoken');
-const bodyParser = require('body-parser');
 const { parseOmnitracXLS } = require('./parser');
 const { geocodeRoutes } = require('./geocoding');
 const { optimizeRoutes, optimizeAllRoutes, optimizeCustom } = require('./routeOptimizer');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
+// Use a sane default secret in development to avoid runtime errors if not configured
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 
 // Middleware
 app.use(cors());
-app.use(bodyParser.json());
 // Increase body size limits to handle large optimize payloads
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
@@ -25,7 +26,7 @@ app.post('/api/login', (req, res) => {
   const { email, password } = req.body;
 
   if (email === process.env.EMAIL && password === process.env.PASSWORD) {
-    const token = jwt.sign({ email }, process.env.JWT_SECRET, { expiresIn: '4d' });
+    const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: '4d' });
     res.json({ token });
   } else {
     res.status(401).json({ error: 'Invalid credentials' });
@@ -41,7 +42,7 @@ app.use('/api', (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (authHeader) {
     const token = authHeader.split(' ')[1];
-    jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+    jwt.verify(token, JWT_SECRET, (err, user) => {
       if (err) {
         return res.sendStatus(403); // Forbidden
       }
@@ -188,12 +189,22 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 });
 
 // Serve frontend build (Render serves a single web service)
-const frontendDir = path.join(__dirname, '../frontend/dist');
+const candidateFrontendDirs = [
+  path.join(__dirname, '../frontend/dist'),
+  path.join(__dirname, './dist')
+];
+const frontendDir = candidateFrontendDirs.find((p) => fs.existsSync(path.join(p, 'index.html'))) || candidateFrontendDirs[0];
+console.log('Serving frontend from:', frontendDir);
 app.use(express.static(frontendDir));
 // SPA fallback for non-API routes
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api/')) return next();
-  res.sendFile(path.join(frontendDir, 'index.html'));
+  const indexPath = path.join(frontendDir, 'index.html');
+  if (!fs.existsSync(indexPath)) {
+    console.error('Frontend index not found at', indexPath);
+    return res.status(500).send('Frontend build not found. Please ensure the frontend build step ran.');
+  }
+  res.sendFile(indexPath);
 });
 
 app.listen(PORT, () => {

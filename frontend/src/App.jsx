@@ -10,23 +10,7 @@ function toFixed6(num) {
   return n.toFixed(6);
 }
 
-const [vehicleCapacities, setVehicleCapacities] = useState({});
-
-  useEffect(() => {
-    fetch('/vehicle-capacity.json')
-      .then(response => response.json())
-      .then(data => setVehicleCapacities(data))
-      .catch(error => console.error('Error fetching vehicle capacities:', error));
-  }, []);
-
-function deriveVehicleCapacity(equipmentTypeId) {
-  const s = String(equipmentTypeId || '').trim();
-  const prefix = Object.keys(vehicleCapacities).find(prefix => s.startsWith(prefix));
-  if (prefix) {
-    return vehicleCapacities[prefix];
-  }
-  return { weight: '', pallets: '' };
-}
+// NOTE: Hooks must be called inside components; vehicle capacity state is set in App()
 
 function pad2(n) {
   return String(n).padStart(2, '0');
@@ -208,6 +192,23 @@ function App() {
   const [selectedDeliveryKeys, setSelectedDeliveryKeys] = useState(new Set());
   const [fullOptRequestId, setFullOptRequestId] = useState(null);
   const [fullOptRunning, setFullOptRunning] = useState(false);
+  const [vehicleCapacities, setVehicleCapacities] = useState({});
+
+  useEffect(() => {
+    fetch('/vehicle-capacity.json')
+      .then((response) => response.json())
+      .then((data) => setVehicleCapacities(data))
+      .catch((error) => console.error('Error fetching vehicle capacities:', error));
+  }, []);
+
+  const deriveVehicleCapacity = (equipmentTypeId) => {
+    const s = String(equipmentTypeId || '').trim();
+    const prefix = Object.keys(vehicleCapacities).find((prefix) => s.startsWith(prefix));
+    if (prefix) {
+      return vehicleCapacities[prefix];
+    }
+    return { weight: '', pallets: '' };
+  };
 
   const handleLogin = (newToken) => {
     localStorage.setItem('authToken', newToken);
@@ -449,7 +450,7 @@ function App() {
           text: result.message
         });
         console.log(`Cache cleared: ${result.entriesCleared} entries removed`);
-.
+ 
       } else {
         throw new Error(result.details || 'Failed to clear cache');
       }

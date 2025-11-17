@@ -7,6 +7,8 @@ services:
       npm ci --prefix frontend
       npm run build --prefix frontend
       npm ci --prefix backend
+      # Copy built frontend into backend as a fallback so runtime always finds index.html
+      cp -r frontend/dist backend/dist || true
     startCommand: node backend/server.js
     envVars:
       - key: NODE_VERSION
