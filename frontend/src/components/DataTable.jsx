@@ -139,13 +139,13 @@ function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingR
         {routes.map((route, routeIndex) => (
           <div key={routeIndex} className="border-b border-gray-200 last:border-b-0">
             {/* Route Header */}
-            <div
-              className="bg-gray-50 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors"
-              onClick={() => toggleRoute(routeIndex)}
-            >
+            <div className="bg-gray-50 px-6 py-4">
               <div className="flex items-start justify-between">
                 <div className="flex items-start space-x-4 flex-1">
-                  <button className="text-gray-500 focus:outline-none mt-1">
+                  <button 
+                    className="text-gray-500 focus:outline-none mt-1 cursor-pointer hover:text-gray-700 transition-colors"
+                    onClick={() => toggleRoute(routeIndex)}
+                  >
                     <svg
                       className={`h-5 w-5 transform transition-transform ${
                         expandedRoutes[routeIndex] ? 'rotate-90' : ''
