@@ -45,6 +45,29 @@ function depotFromFileName(fileName) {
   return '';
 }
 
+function getRequestIdUrl(requestId) {
+  if (!requestId) return null;
+  return `https://console.nextbillion.ai/route-planner-dev?t=solution&request_id=${requestId}`;
+}
+
+function RequestIdLink({ requestId }) {
+  if (!requestId || requestId === '—') {
+    return <span>—</span>;
+  }
+  const url = getRequestIdUrl(requestId);
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      className="text-blue-600 hover:text-blue-800 hover:underline"
+    >
+      {requestId}
+    </a>
+  );
+}
+
 function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingRouteIds, fileName }) {
   const [expandedRoutes, setExpandedRoutes] = useState({});
   const [routeStartLocations, setRouteStartLocations] = useState({});
@@ -213,26 +236,30 @@ function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingR
                             const noSeqDistance = formatDistance(noSeq?.distance);
                             const noSeqDrive = formatDuration(noSeq?.duration);
                             const noSeqTotal = (typeof noSeq?.duration === 'number' && typeof noSeq?.service === 'number') ? formatDuration(noSeq.duration + noSeq.service) : '-';
-                            return (
-                              <>
-                                <tr className="bg-blue-50 hover:bg-blue-100 transition-colors">
-                                  <td className="px-3 md:px-4 py-2 font-medium">sequenced</td>
-                                  <td className="px-3 md:px-4 py-2">{route.summary?.requestIds?.inSequence || '—'}</td>
-                                  <td className="px-3 md:px-4 py-2">{inSeqDistance}</td>
-                                  <td className="px-3 md:px-4 py-2 whitespace-nowrap">{inSeqDrive}</td>
-                                  <td className="px-3 md:px-4 py-2 whitespace-nowrap">{inSeqTotal}</td>
-                                  <td className="px-3 md:px-4 py-2">{inSeqUnassigned}</td>
-                                </tr>
-                                <tr className="bg-green-50 hover:bg-green-100 transition-colors">
-                                  <td className="px-3 md:px-4 py-2 font-medium">optimized</td>
-                                  <td className="px-3 md:px-4 py-2">{route.summary?.requestIds?.noSequence || route.summary?.requestId || '—'}</td>
-                                  <td className="px-3 md:px-4 py-2">{noSeqDistance}</td>
-                                  <td className="px-3 md:px-4 py-2 whitespace-nowrap">{noSeqDrive}</td>
-                                  <td className="px-3 md:px-4 py-2 whitespace-nowrap">{noSeqTotal}</td>
-                                  <td className="px-3 md:px-4 py-2">{noSeqUnassigned}</td>
-                                </tr>
-                              </>
-                            );
+                              return (
+                                <>
+                                  <tr className="bg-blue-50 hover:bg-blue-100 transition-colors">
+                                    <td className="px-3 md:px-4 py-2 font-medium">sequenced</td>
+                                    <td className="px-3 md:px-4 py-2">
+                                      <RequestIdLink requestId={route.summary?.requestIds?.inSequence} />
+                                    </td>
+                                    <td className="px-3 md:px-4 py-2">{inSeqDistance}</td>
+                                    <td className="px-3 md:px-4 py-2 whitespace-nowrap">{inSeqDrive}</td>
+                                    <td className="px-3 md:px-4 py-2 whitespace-nowrap">{inSeqTotal}</td>
+                                    <td className="px-3 md:px-4 py-2">{inSeqUnassigned}</td>
+                                  </tr>
+                                  <tr className="bg-green-50 hover:bg-green-100 transition-colors">
+                                    <td className="px-3 md:px-4 py-2 font-medium">optimized</td>
+                                    <td className="px-3 md:px-4 py-2">
+                                      <RequestIdLink requestId={route.summary?.requestIds?.noSequence || route.summary?.requestId} />
+                                    </td>
+                                    <td className="px-3 md:px-4 py-2">{noSeqDistance}</td>
+                                    <td className="px-3 md:px-4 py-2 whitespace-nowrap">{noSeqDrive}</td>
+                                    <td className="px-3 md:px-4 py-2 whitespace-nowrap">{noSeqTotal}</td>
+                                    <td className="px-3 md:px-4 py-2">{noSeqUnassigned}</td>
+                                  </tr>
+                                </>
+                              );
                           })()}
                         </tbody>
                       </table>
