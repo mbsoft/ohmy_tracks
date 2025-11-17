@@ -21,12 +21,21 @@ import {
   TableRow,
   Paper,
   Checkbox,
+  createTheme,
+  ThemeProvider,
+  CssBaseline,
 } from '@mui/material';
 import { Delete as DeleteIcon, CloudUpload as CloudUploadIcon, Download as DownloadIcon } from '@mui/icons-material';
 import FileUpload from './components/FileUpload';
 import DataTable from './components/DataTable';
 import LoginPage from './components/LoginPage';
 import { exportToCSV } from './utils/csvExport';
+
+const darkTheme = createTheme({
+  palette: {
+    mode: 'dark',
+  },
+});
 
 function toFixed6(num) {
   const n = Number(num);
@@ -519,468 +528,470 @@ function App() {
   }
 
   return (
-    <Box sx={{ minHeight: '100vh', backgroundColor: 'grey.100' }}>
-      <AppBar position="static" color="default" elevation={1}>
-        <Container maxWidth="xl">
-          <Toolbar>
-            <Box sx={{ flexGrow: 1 }}>
-              <Typography variant="h4" component="h1" sx={{ fontWeight: 'bold' }}>
-                Stop List Dashboard
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Upload and analyze stop list reports
-              </Typography>
-            </Box>
-            {isLocalhost && (
-              <Button
-                variant="outlined"
-                color="error"
-                onClick={handleClearCache}
-                disabled={clearingCache}
-                startIcon={clearingCache ? <CircularProgress size={20} /> : <DeleteIcon />}
-                sx={{ mr: 2 }}
-              >
-                {clearingCache ? 'Clearing...' : 'Clear Cache'}
+    <ThemeProvider theme={darkTheme}>
+      <CssBaseline />
+      <Box sx={{ minHeight: '100vh' }}>
+        <AppBar position="static" color="default" elevation={1}>
+          <Container maxWidth="xl">
+            <Toolbar>
+              <Box sx={{ flexGrow: 1 }}>
+                <Typography variant="h4" component="h1" sx={{ fontWeight: 'bold' }}>
+                  Stop List Dashboard
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Upload and analyze stop list reports
+                </Typography>
+              </Box>
+              {isLocalhost && (
+                <Button
+                  variant="outlined"
+                  color="error"
+                  onClick={handleClearCache}
+                  disabled={clearingCache}
+                  startIcon={clearingCache ? <CircularProgress size={20} /> : <DeleteIcon />}
+                  sx={{ mr: 2 }}
+                >
+                  {clearingCache ? 'Clearing...' : 'Clear Cache'}
+                </Button>
+              )}
+              <Button variant="contained" onClick={handleLogout}>
+                Logout
               </Button>
-            )}
-            <Button variant="contained" onClick={handleLogout}>
-              Logout
-            </Button>
-          </Toolbar>
-        </Container>
-      </AppBar>
+            </Toolbar>
+          </Container>
+        </AppBar>
 
-      {/* Main Content */}
-      <Container maxWidth="xl" sx={{ py: 4 }}>
-        {cacheMessage && (
-          <Alert severity={cacheMessage.type} sx={{ mb: 4 }}>
-            {cacheMessage.text}
-          </Alert>
-        )}
+        {/* Main Content */}
+        <Container maxWidth="xl" sx={{ py: 4 }}>
+          {cacheMessage && (
+            <Alert severity={cacheMessage.type} sx={{ mb: 4 }}>
+              {cacheMessage.text}
+            </Alert>
+          )}
 
-        <Box sx={{ mb: 4 }}>
-          <FileUpload onFileUpload={handleFileUpload} loading={loading} />
-        </Box>
+          <Box sx={{ mb: 4 }}>
+            <FileUpload onFileUpload={handleFileUpload} loading={loading} />
+          </Box>
 
-        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-          <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)} aria-label="Tabs">
-            <Tab label="Planned Routes" value="planned" />
-            <Tab label="Full Optimization" value="full" />
-          </Tabs>
-        </Box>
+          <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+            <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)} aria-label="Tabs">
+              <Tab label="Planned Routes" value="planned" />
+              <Tab label="Full Optimization" value="full" />
+            </Tabs>
+          </Box>
 
-        {/* Tab Content */}
-        {activeTab === 'planned' && (
-          <>
-            {error && (
-              <Alert severity="error" sx={{ mb: 4 }}>
-                <Typography variant="h6" component="h3">Error</Typography>
-                {error}
-              </Alert>
-            )}
+          {/* Tab Content */}
+          {activeTab === 'planned' && (
+            <>
+              {error && (
+                <Alert severity="error" sx={{ mb: 4 }}>
+                  <Typography variant="h6" component="h3">Error</Typography>
+                  {error}
+                </Alert>
+              )}
 
-            {loading && (
-              <Card>
-                <CardContent sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', p: 4 }}>
-                  <CircularProgress />
-                  <Typography variant="h6" sx={{ mt: 2 }}>Processing file...</Typography>
-                  <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 1, maxWidth: 'md' }}>
-                    Parsing routes and geocoding all delivery addresses. This may take a few minutes for large files.
-                  </Typography>
-                </CardContent>
-              </Card>
-            )}
-
-            {data && !loading && (
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {loading && (
                 <Card>
-                  <CardContent>
-                    <Grid container spacing={3} justifyContent="center" textAlign="center">
-                      <Grid item xs={12} md={4}>
-                        <Typography variant="subtitle1" color="text.secondary">Total Routes</Typography>
-                        <Typography variant="h4" sx={{ fontWeight: 'bold' }}>{data.totalRoutes}</Typography>
-                      </Grid>
-                      <Grid item xs={12} md={4}>
-                        <Typography variant="subtitle1" color="text.secondary">Total Deliveries</Typography>
-                        <Typography variant="h4" sx={{ fontWeight: 'bold' }}>{data.totalDeliveries}</Typography>
-                      </Grid>
-                      <Grid item xs={12} md={4}>
-                        <Typography variant="subtitle1" color="text.secondary">Avg per Route</Typography>
-                        <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
-                          {data.totalRoutes > 0
-                            ? (data.totalDeliveries / data.totalRoutes).toFixed(1)
-                            : 0}
-                        </Typography>
-                      </Grid>
-                    </Grid>
-
-                    {totals && (
-                      <Grid container spacing={3} mt={2}>
-                        <Grid item xs={12} md={6}>
-                          <Card variant="outlined">
-                            <CardContent sx={{ textAlign: 'center' }}>
-                              <Typography variant="subtitle1" color="text.secondary">Sequenced</Typography>
-                              <Typography variant="h5" sx={{ fontWeight: 'bold' }}>{fmtMilesOrDash(totals.seq.distance)}</Typography>
-                              <Typography variant="body2" color="text.secondary">Distance</Typography>
-                              <Typography variant="h5" sx={{ fontWeight: 'bold', mt: 2 }}>{fmtSecondsOrDash(totals.seq.duration)}</Typography>
-                              <Typography variant="body2" color="text.secondary">Drive Time</Typography>
-                            </CardContent>
-                          </Card>
-                        </Grid>
-                        <Grid item xs={12} md={6}>
-                          <Card variant="outlined">
-                            <CardContent sx={{ textAlign: 'center' }}>
-                              <Typography variant="subtitle1" color="text.secondary">Optimized</Typography>
-                              <Typography variant="h5" sx={{ fontWeight: 'bold' }}>{fmtMilesOrDash(totals.no.distance)}</Typography>
-                              <Typography variant="body2" color="text.secondary">Distance</Typography>
-                              <Typography variant="h5" sx={{ fontWeight: 'bold', mt: 2 }}>{fmtSecondsOrDash(totals.no.duration)}</Typography>
-                              <Typography variant="body2" color="text.secondary">Drive Time</Typography>
-                            </CardContent>
-                          </Card>
-                        </Grid>
-                      </Grid>
-                    )}
-
-                    <Box sx={{ mt: 3, display: 'flex', justifyContent: 'flex-end' }}>
-                      <Button
-                        variant="contained"
-                        startIcon={<DownloadIcon />}
-                        onClick={handleExportCSV}
-                      >
-                        Export to CSV
-                      </Button>
-                    </Box>
+                  <CardContent sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', p: 4 }}>
+                    <CircularProgress />
+                    <Typography variant="h6" sx={{ mt: 2 }}>Processing file...</Typography>
+                    <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 1, maxWidth: 'md' }}>
+                      Parsing routes and geocoding all delivery addresses. This may take a few minutes for large files.
+                    </Typography>
                   </CardContent>
                 </Card>
+              )}
 
-                <DataTable
-                  routes={data.routes}
-                  fileName={data.fileName}
-                  handleOptimizeRoute={handleOptimizeRoute}
-                  handleOptimizeAll={handleOptimizeAll}
-                  optimizingRouteIds={optimizingRouteIds}
-                />
-              </Box>
-            )}
-          </>
-        )}
+              {data && !loading && (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <Card>
+                    <CardContent>
+                      <Grid container spacing={3} justifyContent="center" textAlign="center">
+                        <Grid item xs={12} md={4}>
+                          <Typography variant="subtitle1" color="text.secondary">Total Routes</Typography>
+                          <Typography variant="h4" sx={{ fontWeight: 'bold' }}>{data.totalRoutes}</Typography>
+                        </Grid>
+                        <Grid item xs={12} md={4}>
+                          <Typography variant="subtitle1" color="text.secondary">Total Deliveries</Typography>
+                          <Typography variant="h4" sx={{ fontWeight: 'bold' }}>{data.totalDeliveries}</Typography>
+                        </Grid>
+                        <Grid item xs={12} md={4}>
+                          <Typography variant="subtitle1" color="text.secondary">Avg per Route</Typography>
+                          <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
+                            {data.totalRoutes > 0
+                              ? (data.totalDeliveries / data.totalRoutes).toFixed(1)
+                              : 0}
+                          </Typography>
+                        </Grid>
+                      </Grid>
 
-        {activeTab === 'full' && (
-          <>
-            <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Typography variant="body2" color="text.secondary">
-                {fullOptRequestId ? (
-                  <>Request ID: <Typography component="span" variant="body2" fontFamily="monospace">{fullOptRequestId}</Typography></>
-                ) : (
-                  "No request submitted"
-                )}
-              </Typography>
-              <Button
-                variant="contained"
-                disabled={fullOptRunning}
-                onClick={async () => {
-                  try {
-                    setFullOptRunning(true);
-                    const routes = data?.routes || [];
-                    const depot = depotFromFileName(data?.fileName);
-                    const indexByCoord = new Map();
-                    const locations = [];
-                    const getIndexForCoord = (latlng) => {
-                      const key = formatLatLngString(latlng);
-                      if (!indexByCoord.has(key)) {
-                        indexByCoord.set(key, locations.length);
-                        locations.push(key);
-                      }
-                      return indexByCoord.get(key);
-                    };
+                      {totals && (
+                        <Grid container spacing={3} mt={2}>
+                          <Grid item xs={12} md={6}>
+                            <Card variant="outlined">
+                              <CardContent sx={{ textAlign: 'center' }}>
+                                <Typography variant="subtitle1" color="text.secondary">Sequenced</Typography>
+                                <Typography variant="h5" sx={{ fontWeight: 'bold' }}>{fmtMilesOrDash(totals.seq.distance)}</Typography>
+                                <Typography variant="body2" color="text.secondary">Distance</Typography>
+                                <Typography variant="h5" sx={{ fontWeight: 'bold', mt: 2 }}>{fmtSecondsOrDash(totals.seq.duration)}</Typography>
+                                <Typography variant="body2" color="text.secondary">Drive Time</Typography>
+                              </CardContent>
+                            </Card>
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <Card variant="outlined">
+                              <CardContent sx={{ textAlign: 'center' }}>
+                                <Typography variant="subtitle1" color="text.secondary">Optimized</Typography>
+                                <Typography variant="h5" sx={{ fontWeight: 'bold' }}>{fmtMilesOrDash(totals.no.distance)}</Typography>
+                                <Typography variant="body2" color="text.secondary">Distance</Typography>
+                                <Typography variant="h5" sx={{ fontWeight: 'bold', mt: 2 }}>{fmtSecondsOrDash(totals.no.duration)}</Typography>
+                                <Typography variant="body2" color="text.secondary">Drive Time</Typography>
+                              </CardContent>
+                            </Card>
+                          </Grid>
+                        </Grid>
+                      )}
 
-                    const vehicles = [];
-                    routes.forEach((route, idx) => {
-                      const routeId = String(route.routeId ?? idx);
-                      if (!selectedVehicleIds.has(routeId)) return;
-                      const startLoc = (() => {
-                        if (depot) return depot;
-                        const first = (route.deliveries || []).find((d) => d?.geocode?.success && d?.geocode?.latitude && d?.geocode?.longitude);
-                        return first ? formatLatLngString(`${first.geocode.latitude},${first.geocode.longitude}`) : '';
-                      })();
-                      const startIdx = getIndexForCoord(startLoc);
-                      const startEpoch = parseEpochFromStart(route.routeStartTime || '');
-                      const endEpoch = startEpoch + 12 * 3600;
-                      const cap = deriveVehicleCapacity(route.equipmentType || '');
-                      vehicles.push({
-                        id: routeId,
-                        description: `${routeId}-${route.driverName || ''}`,
-                        time_window: [startEpoch, endEpoch],
-                        start_index: startIdx,
-                        end_index: startIdx,
-                        layover_config: { max_continuous_time: 18000, layover_duration: 1800, include_service_time: true },
-                        capacity: [
-                          Number.isFinite(cap.weight) ? cap.weight * 10 : 0,
-                          Number.isFinite(cap.pallets) ? cap.pallets : 0
-                        ]
-                      });
-                    });
+                      <Box sx={{ mt: 3, display: 'flex', justifyContent: 'flex-end' }}>
+                        <Button
+                          variant="contained"
+                          startIcon={<DownloadIcon />}
+                          onClick={handleExportCSV}
+                        >
+                          Export to CSV
+                        </Button>
+                      </Box>
+                    </CardContent>
+                  </Card>
 
-                    const jobs = [];
-                    routes.forEach((route, rIndex) => {
-                      (route.deliveries || []).forEach((d, dIndex) => {
-                        const key = `${route.routeId ?? rIndex}::${dIndex}`;
-                        if (!selectedDeliveryKeys.has(key)) return;
-                        if (d?.isBreak) return;
-                        const lat = d?.geocode?.latitude ?? d?.latitude;
-                        const lng = d?.geocode?.longitude ?? d?.longitude;
-                        if (lat == null || lng == null) return;
-                        const locIdx = getIndexForCoord(`${lat},${lng}`);
-                        const palletsNum = toNumber(d.cube || d.pallets || '');
-                        const weightNum = toNumber(d.weight || '');
-                        const adjPallets = Number.isFinite(palletsNum) ? Math.ceil(palletsNum) : 0;
-                        const adjWeight = Number.isFinite(weightNum) ? Math.round(weightNum * 10) : 0;
-                        const serviceSeconds = serviceToSeconds(d.service);
-                        const baseJob = {
-                          id: `${d.locationId || ''}-${route.routeId || rIndex}-${dIndex}`,
-                          location_index: locIdx,
-                          service: serviceSeconds,
-                        };
-                        if (d.isDepotResupply) {
-                          baseJob.pickup = [adjWeight, adjPallets];
-                        } else {
-                          baseJob.delivery = [adjWeight, adjPallets];
+                  <DataTable
+                    routes={data.routes}
+                    fileName={data.fileName}
+                    handleOptimizeRoute={handleOptimizeRoute}
+                    handleOptimizeAll={handleOptimizeAll}
+                    optimizingRouteIds={optimizingRouteIds}
+                  />
+                </Box>
+              )}
+            </>
+          )}
+
+          {activeTab === 'full' && (
+            <>
+              <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Typography variant="body2" color="text.secondary">
+                  {fullOptRequestId ? (
+                    <>Request ID: <Typography component="span" variant="body2" fontFamily="monospace">{fullOptRequestId}</Typography></>
+                  ) : (
+                    "No request submitted"
+                  )}
+                </Typography>
+                <Button
+                  variant="contained"
+                  disabled={fullOptRunning}
+                  onClick={async () => {
+                    try {
+                      setFullOptRunning(true);
+                      const routes = data?.routes || [];
+                      const depot = depotFromFileName(data?.fileName);
+                      const indexByCoord = new Map();
+                      const locations = [];
+                      const getIndexForCoord = (latlng) => {
+                        const key = formatLatLngString(latlng);
+                        if (!indexByCoord.has(key)) {
+                          indexByCoord.set(key, locations.length);
+                          locations.push(key);
                         }
-                        jobs.push(baseJob);
+                        return indexByCoord.get(key);
+                      };
+
+                      const vehicles = [];
+                      routes.forEach((route, idx) => {
+                        const routeId = String(route.routeId ?? idx);
+                        if (!selectedVehicleIds.has(routeId)) return;
+                        const startLoc = (() => {
+                          if (depot) return depot;
+                          const first = (route.deliveries || []).find((d) => d?.geocode?.success && d?.geocode?.latitude && d?.geocode?.longitude);
+                          return first ? formatLatLngString(`${first.geocode.latitude},${first.geocode.longitude}`) : '';
+                        })();
+                        const startIdx = getIndexForCoord(startLoc);
+                        const startEpoch = parseEpochFromStart(route.routeStartTime || '');
+                        const endEpoch = startEpoch + 12 * 3600;
+                        const cap = deriveVehicleCapacity(route.equipmentType || '');
+                        vehicles.push({
+                          id: routeId,
+                          description: `${routeId}-${route.driverName || ''}`,
+                          time_window: [startEpoch, endEpoch],
+                          start_index: startIdx,
+                          end_index: startIdx,
+                          layover_config: { max_continuous_time: 18000, layover_duration: 1800, include_service_time: true },
+                          capacity: [
+                            Number.isFinite(cap.weight) ? cap.weight * 10 : 0,
+                            Number.isFinite(cap.pallets) ? cap.pallets : 0
+                          ]
+                        });
                       });
-                    });
 
-                    const requestBody = {
-                      locations: { location: locations },
-                      vehicles,
-                      jobs,
-                      options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: true}, objective: { travel_cost: 'duration' } },
-                      description: 'Full Optimization (selected vehicles and deliveries)'
-                    };
-                    console.log('Full Optimization request body:', JSON.stringify(requestBody, null, 2));
-                    const resp = await fetch('/api/optimize-full', {
-                      method: 'POST',
-                      headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`,
-                      },
-                      body: JSON.stringify({ requestBody })
-                    });
-                    if (!resp.ok) {
-                      const txt = await resp.text();
-                      console.error('optimize-full error response:', txt);
-                      throw new Error('Full optimization failed');
+                      const jobs = [];
+                      routes.forEach((route, rIndex) => {
+                        (route.deliveries || []).forEach((d, dIndex) => {
+                          const key = `${route.routeId ?? rIndex}::${dIndex}`;
+                          if (!selectedDeliveryKeys.has(key)) return;
+                          if (d?.isBreak) return;
+                          const lat = d?.geocode?.latitude ?? d?.latitude;
+                          const lng = d?.geocode?.longitude ?? d?.longitude;
+                          if (lat == null || lng == null) return;
+                          const locIdx = getIndexForCoord(`${lat},${lng}`);
+                          const palletsNum = toNumber(d.cube || d.pallets || '');
+                          const weightNum = toNumber(d.weight || '');
+                          const adjPallets = Number.isFinite(palletsNum) ? Math.ceil(palletsNum) : 0;
+                          const adjWeight = Number.isFinite(weightNum) ? Math.round(weightNum * 10) : 0;
+                          const serviceSeconds = serviceToSeconds(d.service);
+                          const baseJob = {
+                            id: `${d.locationId || ''}-${route.routeId || rIndex}-${dIndex}`,
+                            location_index: locIdx,
+                            service: serviceSeconds,
+                          };
+                          if (d.isDepotResupply) {
+                            baseJob.pickup = [adjWeight, adjPallets];
+                          } else {
+                            baseJob.delivery = [adjWeight, adjPallets];
+                          }
+                          jobs.push(baseJob);
+                        });
+                      });
+
+                      const requestBody = {
+                        locations: { location: locations },
+                        vehicles,
+                        jobs,
+                        options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: true}, objective: { travel_cost: 'duration' } },
+                        description: 'Full Optimization (selected vehicles and deliveries)'
+                      };
+                      console.log('Full Optimization request body:', JSON.stringify(requestBody, null, 2));
+                      const resp = await fetch('/api/optimize-full', {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({ requestBody })
+                      });
+                      if (!resp.ok) {
+                        const txt = await resp.text();
+                        console.error('optimize-full error response:', txt);
+                        throw new Error('Full optimization failed');
+                      }
+                      const { requestId } = await resp.json();
+                      setFullOptRequestId(requestId || null);
+                    } catch (e) {
+                      console.error('Error building Full Optimization request:', e);
+                    } finally {
+                      setFullOptRunning(false);
                     }
-                    const { requestId } = await resp.json();
-                    setFullOptRequestId(requestId || null);
-                  } catch (e) {
-                    console.error('Error building Full Optimization request:', e);
-                  } finally {
-                    setFullOptRunning(false);
-                  }
-                }}
-              >
-                {fullOptRunning ? <CircularProgress size={24} color="inherit" /> : 'Optimize'}
-              </Button>
-            </Box>
+                  }}
+                >
+                  {fullOptRunning ? <CircularProgress size={24} color="inherit" /> : 'Optimize'}
+                </Button>
+              </Box>
 
-            {(() => {
-              const routes = data?.routes || [];
-              const depot = depotFromFileName(data?.fileName);
-              const computeStartLocation = (route) => {
-                if (depot) return depot;
-                const first = (route.deliveries || []).find((d) => d?.geocode?.success && d?.geocode?.latitude && d?.geocode?.longitude);
-                if (first) return formatLatLngString(`${first.geocode.latitude},${first.geocode.longitude}`);
-                return '';
-              };
-              const vehicles = routes.map((route, idx) => {
-                const startLoc = computeStartLocation(route);
-                const endLoc = startLoc;
-                const cap = deriveVehicleCapacity(route.equipmentType || '');
-                return {
-                  id: String(route.routeId ?? idx),
-                  equipmentTypeId: route.equipmentType || '',
-                  driverId: route.driverId || '',
-                  driverName: route.driverName || '',
-                  startTime: route.routeStartTime || '',
-                  endTime: computeShiftEndPlus12h(route.routeStartTime || '') || '',
-                  capacityWeight: cap.weight,
-                  capacityPallets: cap.pallets,
-                  startLocation: startLoc,
-                  endLocation: endLoc,
+              {(() => {
+                const routes = data?.routes || [];
+                const depot = depotFromFileName(data?.fileName);
+                const computeStartLocation = (route) => {
+                  if (depot) return depot;
+                  const first = (route.deliveries || []).find((d) => d?.geocode?.success && d?.geocode?.latitude && d?.geocode?.longitude);
+                  if (first) return formatLatLngString(`${first.geocode.latitude},${first.geocode.longitude}`);
+                  return '';
                 };
-              });
-              const deliveries = [];
-              routes.forEach((route, rIndex) => {
-                (route.deliveries || []).forEach((d, dIndex) => {
-                  if (d?.isBreak) return;
-                  const palletsRaw = d.cube || d.pallets || '';
-                  const palletsNum = toNumber(palletsRaw);
-                  const weightRaw = d.weight || '';
-                  const weightNum = toNumber(weightRaw);
-                  deliveries.push({
-                    key: `${route.routeId ?? rIndex}::${dIndex}`,
-                    step: d.stopNumber || '',
-                    isDepotResupply: !!d.isDepotResupply,
-                    locationId: d.locationId || '',
-                    locationName: d.locationName || '',
-                    address: d.address || '',
-                    serviceWindows: d.serviceWindows || d.openCloseTime || '',
-                    service: d.service || '',
-                    weight: weightRaw,
-                    adjWeight: Number.isFinite(weightNum) ? String(weightNum * 10) : '',
-                    pallets: palletsRaw,
-                    adjPallets: Number.isFinite(palletsNum) ? Math.ceil(palletsNum) : '',
+                const vehicles = routes.map((route, idx) => {
+                  const startLoc = computeStartLocation(route);
+                  const endLoc = startLoc;
+                  const cap = deriveVehicleCapacity(route.equipmentType || '');
+                  return {
+                    id: String(route.routeId ?? idx),
+                    equipmentTypeId: route.equipmentType || '',
+                    driverId: route.driverId || '',
+                    driverName: route.driverName || '',
+                    startTime: route.routeStartTime || '',
+                    endTime: computeShiftEndPlus12h(route.routeStartTime || '') || '',
+                    capacityWeight: cap.weight,
+                    capacityPallets: cap.pallets,
+                    startLocation: startLoc,
+                    endLocation: endLoc,
+                  };
+                });
+                const deliveries = [];
+                routes.forEach((route, rIndex) => {
+                  (route.deliveries || []).forEach((d, dIndex) => {
+                    if (d?.isBreak) return;
+                    const palletsRaw = d.cube || d.pallets || '';
+                    const palletsNum = toNumber(palletsRaw);
+                    const weightRaw = d.weight || '';
+                    const weightNum = toNumber(weightRaw);
+                    deliveries.push({
+                      key: `${route.routeId ?? rIndex}::${dIndex}`,
+                      step: d.stopNumber || '',
+                      isDepotResupply: !!d.isDepotResupply,
+                      locationId: d.locationId || '',
+                      locationName: d.locationName || '',
+                      address: d.address || '',
+                      serviceWindows: d.serviceWindows || d.openCloseTime || '',
+                      service: d.service || '',
+                      weight: weightRaw,
+                      adjWeight: Number.isFinite(weightNum) ? String(weightNum * 10) : '',
+                      pallets: palletsRaw,
+                      adjPallets: Number.isFinite(palletsNum) ? Math.ceil(palletsNum) : '',
+                    });
                   });
                 });
-              });
 
-              const allVehiclesSelected = vehicles.length > 0 && vehicles.every((v) => selectedVehicleIds.has(v.id));
-              const toggleAllVehicles = () => {
-                if (allVehiclesSelected) {
-                  setSelectedVehicleIds(new Set());
-                } else {
-                  setSelectedVehicleIds(new Set(vehicles.map((v) => v.id)));
-                }
-              };
-              const toggleVehicle = (id) => {
-                setSelectedVehicleIds((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(id)) next.delete(id);
-                  else next.add(id);
-                  return next;
-                });
-              };
+                const allVehiclesSelected = vehicles.length > 0 && vehicles.every((v) => selectedVehicleIds.has(v.id));
+                const toggleAllVehicles = () => {
+                  if (allVehiclesSelected) {
+                    setSelectedVehicleIds(new Set());
+                  } else {
+                    setSelectedVehicleIds(new Set(vehicles.map((v) => v.id)));
+                  }
+                };
+                const toggleVehicle = (id) => {
+                  setSelectedVehicleIds((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(id)) next.delete(id);
+                    else next.add(id);
+                    return next;
+                  });
+                };
 
-              const allDeliveriesSelected = deliveries.length > 0 && deliveries.every((d) => selectedDeliveryKeys.has(d.key));
-              const toggleAllDeliveries = () => {
-                if (allDeliveriesSelected) {
-                  setSelectedDeliveryKeys(new Set());
-                } else {
-                  setSelectedDeliveryKeys(new Set(deliveries.map((d) => d.key)));
-                }
-              };
-              const toggleDelivery = (key) => {
-                setSelectedDeliveryKeys((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(key)) next.delete(key);
-                  else next.add(key);
-                  return next;
-                });
-              };
+                const allDeliveriesSelected = deliveries.length > 0 && deliveries.every((d) => selectedDeliveryKeys.has(d.key));
+                const toggleAllDeliveries = () => {
+                  if (allDeliveriesSelected) {
+                    setSelectedDeliveryKeys(new Set());
+                  } else {
+                    setSelectedDeliveryKeys(new Set(deliveries.map((d) => d.key)));
+                  }
+                };
+                const toggleDelivery = (key) => {
+                  setSelectedDeliveryKeys((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(key)) next.delete(key);
+                    else next.add(key);
+                    return next;
+                  });
+                };
 
-              return (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <Card>
-                    <CardContent>
-                      <Typography variant="h6" component="h2" sx={{ mb: 2 }}>Vehicle Inventory</Typography>
-                      <TableContainer component={Paper} sx={{ maxHeight: 440 }}>
-                        <Table stickyHeader size="small">
-                          <TableHead>
-                            <TableRow>
-                              <TableCell padding="checkbox">
-                                <Checkbox
-                                  indeterminate={!allVehiclesSelected && vehicles.some(v => selectedVehicleIds.has(v.id))}
-                                  checked={allVehiclesSelected}
-                                  onChange={toggleAllVehicles}
-                                />
-                              </TableCell>
-                              <TableCell>Equipment Type ID</TableCell>
-                              <TableCell>Driver ID</TableCell>
-                              <TableCell>Driver Name</TableCell>
-                              <TableCell>Start Time</TableCell>
-                              <TableCell>End Time</TableCell>
-                              <TableCell>Capacity Weight</TableCell>
-                              <TableCell>Capacity Pallets</TableCell>
-                              <TableCell>Start Location</TableCell>
-                              <TableCell>End Location</TableCell>
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {vehicles.map((v) => (
-                              <TableRow key={v.id} hover>
+                return (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <Card>
+                      <CardContent>
+                        <Typography variant="h6" component="h2" sx={{ mb: 2 }}>Vehicle Inventory</Typography>
+                        <TableContainer component={Paper} sx={{ maxHeight: 440 }}>
+                          <Table stickyHeader size="small">
+                            <TableHead>
+                              <TableRow>
                                 <TableCell padding="checkbox">
                                   <Checkbox
-                                    checked={selectedVehicleIds.has(v.id)}
-                                    onChange={() => toggleVehicle(v.id)}
+                                    indeterminate={!allVehiclesSelected && vehicles.some(v => selectedVehicleIds.has(v.id))}
+                                    checked={allVehiclesSelected}
+                                    onChange={toggleAllVehicles}
                                   />
                                 </TableCell>
-                                <TableCell>{v.equipmentTypeId || '—'}</TableCell>
-                                <TableCell>{v.driverId || '—'}</TableCell>
-                                <TableCell>{v.driverName || '—'}</TableCell>
-                                <TableCell>{v.startTime || '—'}</TableCell>
-                                <TableCell>{v.endTime || '—'}</TableCell>
-                                <TableCell>{v.capacityWeight || '—'}</TableCell>
-                                <TableCell>{v.capacityPallets || '—'}</TableCell>
-                                <TableCell><Typography variant="caption" fontFamily="monospace">{v.startLocation || '—'}</Typography></TableCell>
-                                <TableCell><Typography variant="caption" fontFamily="monospace">{v.endLocation || '—'}</Typography></TableCell>
+                                <TableCell>Equipment Type ID</TableCell>
+                                <TableCell>Driver ID</TableCell>
+                                <TableCell>Driver Name</TableCell>
+                                <TableCell>Start Time</TableCell>
+                                <TableCell>End Time</TableCell>
+                                <TableCell>Capacity Weight</TableCell>
+                                <TableCell>Capacity Pallets</TableCell>
+                                <TableCell>Start Location</TableCell>
+                                <TableCell>End Location</TableCell>
                               </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </TableContainer>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardContent>
-                      <Typography variant="h6" component="h2" sx={{ mb: 2 }}>Delivery List</Typography>
-                      <TableContainer component={Paper} sx={{ maxHeight: 440 }}>
-                        <Table stickyHeader size="small">
-                          <TableHead>
-                            <TableRow>
-                              <TableCell padding="checkbox">
-                                <Checkbox
-                                  indeterminate={!allDeliveriesSelected && deliveries.some(d => selectedDeliveryKeys.has(d.key))}
-                                  checked={allDeliveriesSelected}
-                                  onChange={toggleAllDeliveries}
-                                />
-                              </TableCell>
-                              <TableCell>Step #</TableCell>
-                              <TableCell>Location ID</TableCell>
-                              <TableCell>Location Name</TableCell>
-                              <TableCell>Address</TableCell>
-                              <TableCell>Service Windows</TableCell>
-                              <TableCell>Service</TableCell>
-                              <TableCell>Weight</TableCell>
-                              <TableCell>Adj. Weight</TableCell>
-                              <TableCell>Pallets</TableCell>
-                              <TableCell>Adj. Pallets</TableCell>
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {deliveries.map((d) => (
-                              <TableRow key={d.key} hover>
+                            </TableHead>
+                            <TableBody>
+                              {vehicles.map((v) => (
+                                <TableRow key={v.id} hover>
+                                  <TableCell padding="checkbox">
+                                    <Checkbox
+                                      checked={selectedVehicleIds.has(v.id)}
+                                      onChange={() => toggleVehicle(v.id)}
+                                    />
+                                  </TableCell>
+                                  <TableCell>{v.equipmentTypeId || '—'}</TableCell>
+                                  <TableCell>{v.driverId || '—'}</TableCell>
+                                  <TableCell>{v.driverName || '—'}</TableCell>
+                                  <TableCell>{v.startTime || '—'}</TableCell>
+                                  <TableCell>{v.endTime || '—'}</TableCell>
+                                  <TableCell>{v.capacityWeight || '—'}</TableCell>
+                                  <TableCell>{v.capacityPallets || '—'}</TableCell>
+                                  <TableCell><Typography variant="caption" fontFamily="monospace">{v.startLocation || '—'}</Typography></TableCell>
+                                  <TableCell><Typography variant="caption" fontFamily="monospace">{v.endLocation || '—'}</Typography></TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent>
+                        <Typography variant="h6" component="h2" sx={{ mb: 2 }}>Delivery List</Typography>
+                        <TableContainer component={Paper} sx={{ maxHeight: 440 }}>
+                          <Table stickyHeader size="small">
+                            <TableHead>
+                              <TableRow>
                                 <TableCell padding="checkbox">
                                   <Checkbox
-                                    checked={selectedDeliveryKeys.has(d.key)}
-                                    onChange={() => toggleDelivery(d.key)}
+                                    indeterminate={!allDeliveriesSelected && deliveries.some(d => selectedDeliveryKeys.has(d.key))}
+                                    checked={allDeliveriesSelected}
+                                    onChange={toggleAllDeliveries}
                                   />
                                 </TableCell>
-                                <TableCell>{d.isDepotResupply ? 'Depot' : (d.step || '—')}</TableCell>
-                                <TableCell>{d.locationId || '—'}</TableCell>
-                                <TableCell>{d.locationName || '—'}</TableCell>
-                                <TableCell>{d.address || '—'}</TableCell>
-                                <TableCell>{d.serviceWindows || '—'}</TableCell>
-                                <TableCell>{d.service || '—'}</TableCell>
-                                <TableCell>{d.weight || '—'}</TableCell>
-                                <TableCell>{d.adjWeight || '—'}</TableCell>
-                                <TableCell>{d.pallets || '—'}</TableCell>
-                                <TableCell>{d.adjPallets || '—'}</TableCell>
+                                <TableCell>Step #</TableCell>
+                                <TableCell>Location ID</TableCell>
+                                <TableCell>Location Name</TableCell>
+                                <TableCell>Address</TableCell>
+                                <TableCell>Service Windows</TableCell>
+                                <TableCell>Service</TableCell>
+                                <TableCell>Weight</TableCell>
+                                <TableCell>Adj. Weight</TableCell>
+                                <TableCell>Pallets</TableCell>
+                                <TableCell>Adj. Pallets</TableCell>
                               </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </TableContainer>
-                    </CardContent>
-                  </Card>
-                </Box>
-              );
-            })()}
-          </>
-        )}
-      </main>
-    </Box>
+                            </TableHead>
+                            <TableBody>
+                              {deliveries.map((d) => (
+                                <TableRow key={d.key} hover>
+                                  <TableCell padding="checkbox">
+                                    <Checkbox
+                                      checked={selectedDeliveryKeys.has(d.key)}
+                                      onChange={() => toggleDelivery(d.key)}
+                                    />
+                                  </TableCell>
+                                  <TableCell>{d.isDepotResupply ? 'Depot' : (d.step || '—')}</TableCell>
+                                  <TableCell>{d.locationId || '—'}</TableCell>
+                                  <TableCell>{d.locationName || '—'}</TableCell>
+                                  <TableCell>{d.address || '—'}</TableCell>
+                                  <TableCell>{d.serviceWindows || '—'}</TableCell>
+                                  <TableCell>{d.service || '—'}</TableCell>
+                                  <TableCell>{d.weight || '—'}</TableCell>
+                                  <TableCell>{d.adjWeight || '—'}</TableCell>
+                                  <TableCell>{d.pallets || '—'}</TableCell>
+                                  <TableCell>{d.adjPallets || '—'}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      </CardContent>
+                    </Card>
+                  </Box>
+                );
+              })()}
+            </>
+          )}
+        </Container>
+      </Box>
+    </ThemeProvider>
   );
 }
 
