@@ -616,7 +616,7 @@ function App() {
               )}
               <button
                 onClick={handleLogout}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-[#8F59A0] hover:bg-[#7a3f87] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#7a3f87]"
               >
                 Logout
               </button>
@@ -766,7 +766,7 @@ function App() {
                   <div className="mt-6 flex justify-end">
                     <button
                       onClick={handleExportCSV}
-                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-[#8F59A0] hover:bg-[#7a3f87] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#7a3f87]"
                     >
                       <svg
                         className="mr-2 h-4 w-4"
@@ -814,7 +814,7 @@ function App() {
               </div>
               <button
                 type="button"
-                className="inline-flex items-center bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm py-2 px-4 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center bg-[#8F59A0] hover:bg-[#7a3f87] text-white font-semibold text-sm py-2 px-4 rounded disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={fullOptRunning}
                 onClick={async () => {
                   try {

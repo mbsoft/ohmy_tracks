@@ -139,7 +139,7 @@ function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingR
       <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-gray-900">Routes & Deliveries</h2>
         <button
-          className="inline-flex items-center bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm py-2 px-4 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+          className="inline-flex items-center bg-[#8F59A0] hover:bg-[#7a3f87] text-white font-semibold text-sm py-2 px-4 rounded disabled:opacity-50 disabled:cursor-not-allowed"
           onClick={optimizeAll}
           disabled={optimizingAll}
           title="Run optimization for all routes"

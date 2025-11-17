@@ -50,7 +50,7 @@ function SavedReports({ reports, onSelect, onDelete, onRefresh }) {
               <div className="flex items-center space-x-4">
                 <button
                   onClick={() => onSelect(report.id)}
-                  className="px-3 py-1 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
+                  className="px-3 py-1 text-sm font-medium text-white bg-[#8F59A0] rounded-md hover:bg-[#7a3f87]"
                 >
                   Load
                 </button>
