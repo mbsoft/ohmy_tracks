@@ -9,22 +9,20 @@ function toFixed6(num) {
   return n.toFixed(6);
 }
 
+const [vehicleCapacities, setVehicleCapacities] = useState({});
+
+  useEffect(() => {
+    fetch('/vehicle-capacity.json')
+      .then(response => response.json())
+      .then(data => setVehicleCapacities(data))
+      .catch(error => console.error('Error fetching vehicle capacities:', error));
+  }, []);
+
 function deriveVehicleCapacity(equipmentTypeId) {
   const s = String(equipmentTypeId || '').trim();
-  if (s.startsWith('40LG')) {
-    return { weight: 29000, pallets: 22 };
-  }
-  if (s.startsWith('32LG')) {
-    return { weight: 25000, pallets: 18 };
-  }
-  if (s.startsWith('28LG')) {
-    return { weight: 18000, pallets: 16 };
-  }
-  if (s.startsWith('48LG')) {
-    return { weight: 40000, pallets: 32 };
-  }
-  if (s.startsWith('18BT')) {
-    return { weight: 12000, pallets: 12 };
+  const prefix = Object.keys(vehicleCapacities).find(prefix => s.startsWith(prefix));
+  if (prefix) {
+    return vehicleCapacities[prefix];
   }
   return { weight: '', pallets: '' };
 }
