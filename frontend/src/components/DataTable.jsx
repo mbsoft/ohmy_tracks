@@ -215,16 +215,16 @@ function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingR
                             const noSeqTotal = (typeof noSeq?.duration === 'number' && typeof noSeq?.service === 'number') ? formatDuration(noSeq.duration + noSeq.service) : '-';
                             return (
                               <>
-                                <tr>
-                                  <td className="px-3 md:px-4 py-2">sequenced</td>
+                                <tr className="bg-blue-50 hover:bg-blue-100 transition-colors">
+                                  <td className="px-3 md:px-4 py-2 font-medium">sequenced</td>
                                   <td className="px-3 md:px-4 py-2">{route.summary?.requestIds?.inSequence || '—'}</td>
                                   <td className="px-3 md:px-4 py-2">{inSeqDistance}</td>
                                   <td className="px-3 md:px-4 py-2 whitespace-nowrap">{inSeqDrive}</td>
                                   <td className="px-3 md:px-4 py-2 whitespace-nowrap">{inSeqTotal}</td>
                                   <td className="px-3 md:px-4 py-2">{inSeqUnassigned}</td>
                                 </tr>
-                                <tr>
-                                  <td className="px-3 md:px-4 py-2">optimized</td>
+                                <tr className="bg-green-50 hover:bg-green-100 transition-colors">
+                                  <td className="px-3 md:px-4 py-2 font-medium">optimized</td>
                                   <td className="px-3 md:px-4 py-2">{route.summary?.requestIds?.noSequence || route.summary?.requestId || '—'}</td>
                                   <td className="px-3 md:px-4 py-2">{noSeqDistance}</td>
                                   <td className="px-3 md:px-4 py-2 whitespace-nowrap">{noSeqDrive}</td>
