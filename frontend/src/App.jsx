@@ -760,15 +760,17 @@ function App() {
                         const adjPallets = Number.isFinite(palletsNum) ? Math.ceil(palletsNum) : 0;
                         const adjWeight = Number.isFinite(weightNum) ? Math.round(weightNum * 10) : 0; // ensure whole integer
                         const serviceSeconds = serviceToSeconds(d.service);
-                        jobs.push({
+                        const baseJob = {
                           id: `${d.locationId || ''}-${route.routeId || rIndex}-${dIndex}`,
                           location_index: locIdx,
                           service: serviceSeconds,
-                          delivery: [
-                            adjWeight,   // Adj. Weight (weight*10 as integer)
-                            adjPallets   // Adj. Pallets (rounded up)
-                          ]
-                        });
+                        };
+                        if (d.isDepotResupply) {
+                          baseJob.pickup = [adjWeight, adjPallets];
+                        } else {
+                          baseJob.delivery = [adjWeight, adjPallets];
+                        }
+                        jobs.push(baseJob);
                       });
                     });
 
@@ -776,7 +778,7 @@ function App() {
                       locations: { location: locations },
                       vehicles,
                       jobs,
-                      options: { routing: { mode: 'truck', traffic_timestamp: 1760648400 }, objective: { travel_cost: 'duration' } },
+                      options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: true}, objective: { travel_cost: 'duration' } },
                       description: 'Full Optimization (selected vehicles and deliveries)'
                     };
                     console.log('Full Optimization request body:', JSON.stringify(requestBody, null, 2));
@@ -852,6 +854,8 @@ function App() {
                   const weightNum = toNumber(weightRaw);
                   deliveries.push({
                     key: `${route.routeId ?? rIndex}::${dIndex}`,
+                    step: d.stopNumber || '',
+                    isDepotResupply: !!d.isDepotResupply,
                     locationId: d.locationId || '',
                     locationName: d.locationName || '',
                     address: d.address || '',
@@ -962,6 +966,7 @@ function App() {
                             <th className="px-4 py-3">
                               <input type="checkbox" checked={allDeliveriesSelected} onChange={toggleAllDeliveries} />
                             </th>
+                            <th className="px-4 py-3 text-left font-medium text-gray-700">Step #</th>
                             <th className="px-4 py-3 text-left font-medium text-gray-700">Location ID</th>
                             <th className="px-4 py-3 text-left font-medium text-gray-700">Location Name</th>
                             <th className="px-4 py-3 text-left font-medium text-gray-700">Address</th>
@@ -983,6 +988,7 @@ function App() {
                                   onChange={() => toggleDelivery(d.key)}
                                 />
                               </td>
+                              <td className="px-4 py-3 whitespace-nowrap">{d.isDepotResupply ? 'Depot' : (d.step || '—')}</td>
                               <td className="px-4 py-3 whitespace-nowrap">{d.locationId || '—'}</td>
                               <td className="px-4 py-3">{d.locationName || '—'}</td>
                               <td className="px-4 py-3">{d.address || '—'}</td>

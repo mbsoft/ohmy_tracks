@@ -10,7 +10,7 @@ This system automatically geocodes delivery addresses when XLS files are uploade
 - Every delivery address is automatically geocoded during file upload
 - Uses NextBillion.ai Discover API endpoint:
   ```
-  https://api.nextbillion.io/h/discover?q={address}&key={apiKey}&fallback=true&score=0.75
+  https://sgpstg.nextbillion.io/h/discover?q={address}&key={apiKey}&fallback=true&score=0.75
   ```
 
 ### 2. Intelligent Caching

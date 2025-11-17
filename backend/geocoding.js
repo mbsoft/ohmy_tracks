@@ -20,7 +20,7 @@ async function geocodeAddress(address, apiKey = 'opensesame', verbose = false, p
   }
 
   try {
-    const url = 'https://api.nextbillion.io/h/discover';
+    const url = 'https://sgpstg.nextbillion.io/h/discover';
     const params = {
       q: address,
       key: apiKey
