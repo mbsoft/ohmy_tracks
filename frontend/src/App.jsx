@@ -195,6 +195,19 @@ function App() {
   const [fullOptRunning, setFullOptRunning] = useState(false);
   const [vehicleCapacities, setVehicleCapacities] = useState({});
   const [savedReports, setSavedReports] = useState([]);
+  const [selectedRouteIds, setSelectedRouteIds] = useState(new Set());
+
+  const toggleRouteSelection = (routeId) => {
+    setSelectedRouteIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(routeId)) {
+        next.delete(routeId);
+      } else {
+        next.add(routeId);
+      }
+      return next;
+    });
+  };
 
   const fetchSavedReports = useCallback(async () => {
     if (!token) return;
@@ -246,6 +259,7 @@ function App() {
     if (!data?.routes || data.routes.length === 0) {
       setSelectedVehicleIds(new Set());
       setSelectedDeliveryKeys(new Set());
+      setSelectedRouteIds(new Set());
       return;
     }
     // Vehicles: one per route
@@ -253,6 +267,7 @@ function App() {
       data.routes.map((route, idx) => String(route.routeId ?? idx))
     );
     setSelectedVehicleIds(vehicleIds);
+    setSelectedRouteIds(vehicleIds);
     // Deliveries: all non-break stops across all routes
     const deliveryKeys = new Set();
     data.routes.forEach((route, rIndex) => {
@@ -549,7 +564,8 @@ function App() {
     );
   };
 
-  const totals = data?.routes ? aggregateTotals(data.routes) : null;
+  const selectedRoutes = data?.routes?.filter((route, idx) => selectedRouteIds.has(String(route.routeId ?? idx))) || [];
+  const totals = data?.routes ? aggregateTotals(selectedRoutes) : null;
 
   if (!token) {
     return <LoginPage onLogin={handleLogin} />;
@@ -782,6 +798,8 @@ function App() {
                   handleOptimizeRoute={handleOptimizeRoute}
                   handleOptimizeAll={handleOptimizeAll}
                   optimizingRouteIds={optimizingRouteIds}
+                  selectedRouteIds={selectedRouteIds}
+                  toggleRouteSelection={toggleRouteSelection}
                 />
               </div>
             )}

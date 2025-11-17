@@ -68,7 +68,7 @@ function RequestIdLink({ requestId }) {
   );
 }
 
-function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingRouteIds, fileName }) {
+function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingRouteIds, fileName, selectedRouteIds, toggleRouteSelection }) {
   const [expandedRoutes, setExpandedRoutes] = useState({});
   const [routeStartLocations, setRouteStartLocations] = useState({});
   const [optimizingAll, setOptimizingAll] = useState(false);
@@ -165,6 +165,13 @@ function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingR
             <div className="bg-gray-50 px-6 py-4">
               <div className="flex items-start justify-between">
                 <div className="flex items-start space-x-4 flex-1">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={selectedRouteIds.has(String(route.routeId ?? routeIndex))}
+                    onChange={() => toggleRouteSelection(String(route.routeId ?? routeIndex))}
+                    onClick={(e) => e.stopPropagation()}
+                  />
                   <button 
                     className="text-gray-500 focus:outline-none mt-1 cursor-pointer hover:text-gray-700 transition-colors"
                     onClick={() => toggleRoute(routeIndex)}
