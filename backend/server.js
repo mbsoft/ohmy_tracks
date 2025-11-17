@@ -9,6 +9,7 @@ const jwt = require('jsonwebtoken');
 const { parseOmnitracXLS } = require('./parser');
 const { geocodeRoutes } = require('./geocoding');
 const { optimizeRoutes, optimizeAllRoutes, optimizeCustom } = require('./routeOptimizer');
+const uploads = require('./uploads');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -178,13 +179,56 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
     parsedData.routes.forEach(route => route.status = 'complete');
 
     console.log('Geocoding complete for all routes');
-    res.json({ ...geocodedData, fileName: req.file.originalname });
+
+    // Save the processed data
+    const savedUpload = await uploads.saveUpload(req.file.originalname, geocodedData);
+
+    res.json({ ...savedUpload.data, fileName: savedUpload.fileName, uploadId: savedUpload.id });
   } catch (error) {
     console.error('Error processing file:', error);
     res.status(500).json({
       error: 'Failed to process file',
       details: error.message
     });
+  }
+});
+
+// Endpoints for managing prior uploads
+app.get('/api/uploads', async (req, res) => {
+  try {
+    const priorUploads = await uploads.getUploads();
+    res.json(priorUploads);
+  } catch (error) {
+    console.error('Error getting prior uploads:', error);
+    res.status(500).json({ error: 'Failed to get prior uploads', details: error.message });
+  }
+});
+
+app.get('/api/uploads/:id', async (req, res) => {
+  try {
+    const upload = await uploads.getUpload(req.params.id);
+    if (upload) {
+      res.json({ ...upload.data, fileName: upload.fileName, uploadId: upload.id });
+    } else {
+      res.status(404).json({ error: 'Upload not found' });
+    }
+  } catch (error) {
+    console.error('Error getting upload:', error);
+    res.status(500).json({ error: 'Failed to get upload', details: error.message });
+  }
+});
+
+app.delete('/api/uploads/:id', async (req, res) => {
+  try {
+    const success = await uploads.deleteUpload(req.params.id);
+    if (success) {
+      res.status(204).send();
+    } else {
+      res.status(404).json({ error: 'Upload not found' });
+    }
+  } catch (error) {
+    console.error('Error deleting upload:', error);
+    res.status(500).json({ error: 'Failed to delete upload', details: error.message });
   }
 });
 
