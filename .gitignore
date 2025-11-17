@@ -10,3 +10,6 @@ npm-debug.log
 
 # Uploaded data
 backend/uploads/
+uploads/*
+
+*.xls

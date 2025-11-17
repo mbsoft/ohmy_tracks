@@ -15,6 +15,12 @@ const app = express();
 const PORT = process.env.PORT || 5001;
 // Use a sane default secret in development to avoid runtime errors if not configured
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const LOGIN_EMAIL = process.env.EMAIL || (NODE_ENV !== 'production' ? 'demo@nextbillion.ai' : undefined);
+const LOGIN_PASSWORD = process.env.PASSWORD || (NODE_ENV !== 'production' ? 'demo2025' : undefined);
+if (!process.env.EMAIL || !process.env.PASSWORD) {
+  console.log(`[auth] Using ${NODE_ENV} fallback login creds: ${LOGIN_EMAIL ? LOGIN_EMAIL : '(missing email)'} / ${LOGIN_PASSWORD ? '******' : '(missing password)'}`);
+}
 
 // Middleware
 app.use(cors());
@@ -26,7 +32,10 @@ app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 app.post('/api/login', (req, res) => {
   const { email, password } = req.body;
 
-  if (email === process.env.EMAIL && password === process.env.PASSWORD) {
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Missing email or password' });
+  }
+  if (LOGIN_EMAIL && LOGIN_PASSWORD && email === LOGIN_EMAIL && password === LOGIN_PASSWORD) {
     const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: '4d' });
     res.json({ token });
   } else {
