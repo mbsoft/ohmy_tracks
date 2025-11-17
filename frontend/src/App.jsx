@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import FileUpload from './components/FileUpload';
 import DataTable from './components/DataTable';
 import LoginPage from './components/LoginPage';
+import SavedReports from './components/SavedReports';
 import { exportToCSV } from './utils/csvExport';
 
 function toFixed6(num) {
@@ -193,6 +194,26 @@ function App() {
   const [fullOptRequestId, setFullOptRequestId] = useState(null);
   const [fullOptRunning, setFullOptRunning] = useState(false);
   const [vehicleCapacities, setVehicleCapacities] = useState({});
+  const [savedReports, setSavedReports] = useState([]);
+
+  const fetchSavedReports = useCallback(async () => {
+    if (!token) return;
+    try {
+      const response = await fetch('/api/uploads', {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (response.ok) {
+        const reports = await response.json();
+        setSavedReports(reports);
+      }
+    } catch (error) {
+      console.error('Failed to fetch saved reports:', error);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    fetchSavedReports();
+  }, [fetchSavedReports]);
 
   useEffect(() => {
     fetch('/vehicle-capacity.json')
@@ -352,6 +373,7 @@ function App() {
 
       const result = await response.json();
       setData({ ...result, fileName: file.name });
+      fetchSavedReports(); // Refresh the list of saved reports
     } catch (err) {
       if (err.name === 'AbortError') {
         setError('Request timed out. The file may be too large or contain too many addresses to geocode.');
@@ -361,6 +383,45 @@ function App() {
       console.error('Upload error:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSelectReport = async (reportId) => {
+    setLoading(true);
+    setError(null);
+    setData(null);
+    try {
+      const response = await fetch(`/api/uploads/${reportId}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        throw new Error('Failed to load report');
+      }
+      const result = await response.json();
+      setData(result);
+    } catch (err) {
+      setError(err.message);
+      console.error('Error loading report:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteReport = async (reportId) => {
+    if (window.confirm('Are you sure you want to delete this report? This action cannot be undone.')) {
+      try {
+        const response = await fetch(`/api/uploads/${reportId}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (!response.ok) {
+          throw new Error('Failed to delete report');
+        }
+        fetchSavedReports(); // Refresh the list
+      } catch (err) {
+        setError(err.message);
+        console.error('Error deleting report:', err);
+      }
     }
   };
 
@@ -571,8 +632,14 @@ function App() {
           </div>
         )}
 
-        {/* File Upload Section */}
-        <div className="mb-8">
+        {/* File Upload and Saved Reports Section */}
+        <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+          <SavedReports
+            reports={savedReports}
+            onSelect={handleSelectReport}
+            onDelete={handleDeleteReport}
+            onRefresh={fetchSavedReports}
+          />
           <FileUpload onFileUpload={handleFileUpload} loading={loading} />
         </div>
 
