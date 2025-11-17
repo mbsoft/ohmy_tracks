@@ -38,7 +38,6 @@ const LoginPage = ({ onLogin }) => {
             alt="Company logo"
             className="w-32 h-auto mx-auto"
           />
-        <h2 className="text-2xl font-bold text-center text-gray-900">Login</h2>
         <form className="space-y-6" onSubmit={handleSubmit}>
           <div>
             <label
