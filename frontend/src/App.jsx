@@ -130,8 +130,10 @@ function extractNbTimesAndOrder(nbResult) {
   steps.forEach((s) => {
     const jobId = s.id || s.job || s.task_id;
     const type = (s.type || s.activity || '').toString().toLowerCase();
-    if (jobId) {
-      // Only assign an order the first time we see a jobId
+    // For display order, count only deliveries (and generic 'job' steps). Ignore pickups/starts/ends.
+    const countsForOrder = type === 'delivery' || type === 'job';
+    if (countsForOrder && jobId) {
+      // Only assign an order the first time we see a jobId that should be counted
       if (orderByJobId[jobId] == null) {
         order += 1;
         orderByJobId[jobId] = order;
@@ -326,9 +328,10 @@ function App() {
         const updatedRoutes = oldData.routes.map((route) => {
           if (route.routeId !== routeId) return route;
           const updatedDeliveries = route.deliveries.map((delivery) => {
-            const jobId = `${delivery.stopNumber}-${route.routeId}`;
-            const jobTimes = timesByJobId[jobId];
-            const order = orderByJobId[jobId];
+            const legacyJobId = `${delivery.stopNumber}-${route.routeId}`;
+            const shipmentDeliveryId = delivery.locationId ? `${delivery.locationId}D` : null;
+            const jobTimes = (shipmentDeliveryId && timesByJobId[shipmentDeliveryId]) || timesByJobId[legacyJobId];
+            const order = (shipmentDeliveryId && orderByJobId[shipmentDeliveryId]) || orderByJobId[legacyJobId];
             let NB_ARRIVAL = jobTimes?.arrival != null ? formatEpochToHHMM(jobTimes.arrival) : delivery.NB_ARRIVAL;
             let NB_DEPART = jobTimes?.departure != null ? formatEpochToHHMM(jobTimes.departure) : delivery.NB_DEPART;
             if (delivery.isBreak && layoverTimes) {
@@ -473,9 +476,10 @@ function App() {
           const { timesByJobId, orderByJobId, steps } = extractNbTimesAndOrder(nbRoute.result || nbRoute);
           const layoverTimes = extractLayoverTimes(steps);
           const updatedDeliveries = route.deliveries.map((delivery) => {
-            const jobId = `${delivery.stopNumber}-${route.routeId}`;
-            const jobTimes = timesByJobId[jobId];
-            const order = orderByJobId[jobId];
+            const legacyJobId = `${delivery.stopNumber}-${route.routeId}`;
+            const shipmentDeliveryId = delivery.locationId ? `${delivery.locationId}D` : null;
+            const jobTimes = (shipmentDeliveryId && timesByJobId[shipmentDeliveryId]) || timesByJobId[legacyJobId];
+            const order = (shipmentDeliveryId && orderByJobId[shipmentDeliveryId]) || orderByJobId[legacyJobId];
             let NB_ARRIVAL = jobTimes?.arrival != null ? formatEpochToHHMM(jobTimes.arrival) : delivery.NB_ARRIVAL;
             let NB_DEPART = jobTimes?.departure != null ? formatEpochToHHMM(jobTimes.departure) : delivery.NB_DEPART;
             if (delivery.isBreak && layoverTimes) {

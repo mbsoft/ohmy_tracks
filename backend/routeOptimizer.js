@@ -26,7 +26,7 @@ function deriveVehicleCapacity(equipmentTypeId) {
   if (s.startsWith('40LG')) return { weight: 29000, pallets: 22 };
   if (s.startsWith('32LG')) return { weight: 25000, pallets: 18 };
   if (s.startsWith('28LG')) return { weight: 20000, pallets: 18 };
-  if (s.startsWith('48LG')) return { weight: 40000, pallets: 32 };
+  if (s.startsWith('48LG')) return { weight: 41000, pallets: 32 };
   if (s.startsWith('18BT')) return { weight: 12000, pallets: 12 };
   return { weight: 0, pallets: 0 };
 }
@@ -163,6 +163,11 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
 
     const baseJobs = [];
     const baseJobsNoSeq = [];
+    const shipmentsNoSeq = [];
+    const hasPickup = Array.isArray(route.deliveries) && route.deliveries.some((d) => !!d?.isDepotResupply);
+    const shiftStartEpoch = new Date(route.routeStartTime).getTime() / 1000;
+    const shiftEndSeqEpoch = shiftStartEpoch + 12 * 3600;
+    const shiftEndNoSeqEpoch = shiftStartEpoch + 20 * 3600;
     for (const delivery of route.deliveries) {
       const lat = delivery?.geocode?.latitude ?? delivery?.latitude;
       const lng = delivery?.geocode?.longitude ?? delivery?.longitude;
@@ -182,22 +187,39 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
         time_windows: [[twStart, twEnd]],
       };
       baseJobs.push(common);
-      // For non-sequenced run, include capacity arrays (delivery/pickup)
       const palletsNum = parseNumberSafe(delivery.cube || delivery.pallets);
       const weightNum = parseNumberSafe(delivery.weight);
       const adjPallets = Math.max(0, Math.ceil(palletsNum));
       const adjWeight10 = Math.max(0, Math.round(weightNum * 10));
-      baseJobsNoSeq.push({
-        ...common,
-        ...(delivery.isDepotResupply
-          ? { pickup: [adjWeight10, adjPallets] }
-          : { delivery: [adjWeight10, adjPallets] }),
-      });
+      if (hasPickup) {
+        // Build shipments for all non-pickup stops; skip explicit pickup-only jobs
+        if (!delivery.isDepotResupply) {
+          const locationIdRaw = String(delivery.locationId || `${delivery.stopNumber}-${route.routeId}`);
+          shipmentsNoSeq.push({
+            // optional id for traceability
+            id: `${delivery.stopNumber}-${route.routeId}`,
+            pickup: {
+              id: `${locationIdRaw}P`,
+              location_index: depotIndex,
+              service: 0,
+              time_windows: [[shiftStartEpoch, shiftEndSeqEpoch]]
+            },
+            delivery: {
+              id: `${locationIdRaw}D`,
+              location_index: locIdx,
+              service: convertToSecondsSafe(delivery.service),
+              time_windows: [[twStart, twEnd]]
+            },
+            amount: [adjWeight10, adjPallets]
+          });
+        }
+      } else {
+        // No pickups in route → send as simple jobs without capacity arrays
+        baseJobsNoSeq.push(common);
+      }
     }
 
-    const shiftStartEpoch = new Date(route.routeStartTime).getTime() / 1000;
-    const shiftEndSeqEpoch = shiftStartEpoch + 12 * 3600;
-    const shiftEndNoSeqEpoch = shiftStartEpoch + 20 * 3600;
+    // shiftStartEpoch/shiftEndSeqEpoch already computed above
 
     const vehicle = {
       id: route.routeId,
@@ -218,13 +240,17 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
     };
     const vehicleNoSeq = {
       ...vehicle,
-      time_window: [shiftStartEpoch, shiftEndNoSeqEpoch],
-      capacity: (()=>{
-        const cap = deriveVehicleCapacity(route.equipmentType);
-        const weight10 = Math.max(0, Math.round((cap.weight || 0) * 10));
-        const pallets = Math.max(0, Math.round(cap.pallets || 0));
-        return [weight10, pallets];
-      })()
+      time_window: [shiftStartEpoch, shiftEndSeqEpoch],
+      ...(hasPickup
+        ? {
+            capacity: (() => {
+              const cap = deriveVehicleCapacity(route.equipmentType);
+              const weight10 = Math.max(0, Math.round((cap.weight || 0) * 10));
+              const pallets = Math.max(0, Math.round(cap.pallets || 0));
+              return [weight10, pallets];
+            })(),
+          }
+        : {})
     };
 
     // 1) In-sequence run (sequence_order)
@@ -247,13 +273,21 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
     const { result: resultInSeq, requestId: requestIdInSeq } = await submitAndPoll(requestBodySeq, apiKey);
 
     // 2) No predefined sequence run
-    const requestBodyNoSeq = {
-      locations: { location: locations },
-      vehicles: [vehicleNoSeq],
-      jobs: baseJobsNoSeq,
-      options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: false},objective: { travel_cost: 'duration' } },
-      description: `Optimization (no sequence) for ${route.routeId}`
-    };
+    const requestBodyNoSeq = hasPickup
+      ? {
+          locations: { location: locations },
+          vehicles: [vehicleNoSeq],
+          shipments: shipmentsNoSeq,
+          options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: false},objective: { travel_cost: 'duration' } },
+          description: `Optimization (no sequence) for ${route.routeId}`
+        }
+      : {
+          locations: { location: locations },
+          vehicles: [vehicleNoSeq],
+          jobs: baseJobsNoSeq,
+          options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: false},objective: { travel_cost: 'duration' } },
+          description: `Optimization (no sequence) for ${route.routeId}`
+        };
     const { result: resultNoSeq, requestId: requestIdNoSeq } = await submitAndPoll(requestBodyNoSeq, apiKey);
 
     const seqUnassigned = Array.isArray(resultInSeq?.result?.unassigned) ? resultInSeq.result.unassigned.length : 0;
@@ -368,6 +402,11 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
 
     const baseJobs = [];
     const baseJobsNoSeq = [];
+    const shipmentsNoSeq = [];
+    const hasPickup = Array.isArray(route.deliveries) && route.deliveries.some((d) => !!d?.isDepotResupply);
+    const shiftStartEpoch = new Date(route.routeStartTime).getTime() / 1000;
+    const shiftEndSeqEpoch = shiftStartEpoch + 12 * 3600;
+    const shiftEndNoSeqEpoch = shiftStartEpoch + 20 * 3600;
     for (const delivery of route.deliveries) {
       const lat = delivery?.geocode?.latitude ?? delivery?.latitude;
       const lng = delivery?.geocode?.longitude ?? delivery?.longitude;
@@ -387,21 +426,36 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
         time_windows: [[twStart, twEnd]],
       };
       baseJobs.push(common);
-      const palletsNum = parseNumberSafe(delivery.cube || delivery.pallets);
-      const weightNum = parseNumberSafe(delivery.weight);
-      const adjPallets = Math.max(0, Math.ceil(palletsNum));
-      const adjWeight10 = Math.max(0, Math.round(weightNum * 10));
-      baseJobsNoSeq.push({
-        ...common,
-        ...(delivery.isDepotResupply
-          ? { pickup: [adjWeight10, adjPallets] }
-          : { delivery: [adjWeight10, adjPallets] }),
-      });
+      if (hasPickup) {
+        const palletsNum = parseNumberSafe(delivery.cube || delivery.pallets);
+        const weightNum = parseNumberSafe(delivery.weight);
+        const adjPallets = Math.max(0, Math.ceil(palletsNum));
+        const adjWeight10 = Math.max(0, Math.round(weightNum * 10));
+        if (!delivery.isDepotResupply) {
+          const locationIdRaw = String(delivery.locationId || `${delivery.stopNumber}-${route.routeId}`);
+          shipmentsNoSeq.push({
+            id: `${delivery.stopNumber}-${route.routeId}`,
+            pickup: {
+              id: `${locationIdRaw}P`,
+              location_index: depotIndex,
+              service: 0,
+              time_windows: [[shiftStartEpoch, shiftEndSeqEpoch]]
+            },
+            delivery: {
+              id: `${locationIdRaw}D`,
+              location_index: locIdx,
+              service: convertToSecondsSafe(delivery.service),
+              time_windows: [[twStart, twEnd]]
+            },
+            amount: [adjWeight10, adjPallets]
+          });
+        }
+      } else {
+        baseJobsNoSeq.push(common);
+      }
     }
 
-    const shiftStartEpoch = new Date(route.routeStartTime).getTime() / 1000;
-    const shiftEndSeqEpoch = shiftStartEpoch + 12 * 3600;
-    const shiftEndNoSeqEpoch = shiftStartEpoch + 20 * 3600;
+    // shiftStartEpoch/shiftEndSeqEpoch already computed above
 
     const vehicle = {
       id: route.routeId,
@@ -418,13 +472,17 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
     };
     const vehicleNoSeq = {
       ...vehicle,
-      time_window: [shiftStartEpoch, shiftEndNoSeqEpoch],
-      capacity: (()=>{
-        const cap = deriveVehicleCapacity(route.equipmentType);
-        const weight10 = Math.max(0, Math.round((cap.weight || 0) * 10));
-        const pallets = Math.max(0, Math.round(cap.pallets || 0));
-        return [weight10, pallets];
-      })()
+      time_window: [shiftStartEpoch, shiftEndSeqEpoch],
+      ...(hasPickup
+        ? {
+            capacity: (() => {
+              const cap = deriveVehicleCapacity(route.equipmentType);
+              const weight10 = Math.max(0, Math.round((cap.weight || 0) * 10));
+              const pallets = Math.max(0, Math.round(cap.pallets || 0));
+              return [weight10, pallets];
+            })(),
+          }
+        : {})
     };
 
     let seq = 1;
@@ -444,13 +502,21 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
       options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: false}, objective: { travel_cost: 'duration' } },
       description: `Optimization (in-sequence) for ${route.routeId}`
     };
-    const requestBodyNoSeq = {
-      locations: { location: locations },
-      vehicles: [vehicleNoSeq],
-      jobs: baseJobsNoSeq,
-      options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: false}, objective: { travel_cost: 'duration' } },
-      description: `Optimization (no sequence) for ${route.routeId}`
-    };
+    const requestBodyNoSeq = hasPickup
+      ? {
+          locations: { location: locations },
+          vehicles: [vehicleNoSeq],
+          shipments: shipmentsNoSeq,
+          options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: false}, objective: { travel_cost: 'duration' } },
+          description: `Optimization (no sequence) for ${route.routeId}`
+        }
+      : {
+          locations: { location: locations },
+          vehicles: [vehicleNoSeq],
+          jobs: baseJobsNoSeq,
+          options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: false}, objective: { travel_cost: 'duration' } },
+          description: `Optimization (no sequence) for ${route.routeId}`
+        };
 
     // Submit both runs under submit limiter
     console.log('NB Optimization (All) request URL:', 'https://api.nextbillion.io/optimization/v2?key=***');
