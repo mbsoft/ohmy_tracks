@@ -169,10 +169,16 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
     const shiftEndSeqEpoch = shiftStartEpoch + 12 * 3600;
     const shiftEndNoSeqEpoch = shiftStartEpoch + 20 * 3600;
     for (const delivery of route.deliveries) {
-      const lat = delivery?.geocode?.latitude ?? delivery?.latitude;
-      const lng = delivery?.geocode?.longitude ?? delivery?.longitude;
-      if (lat == null || lng == null) continue;
-      const locIdx = addLocation(`stop-${delivery.stopNumber}`, `${lat},${lng}`);
+      // Use depot location index for depot resupply even if stop has no coordinates
+      let locIdx;
+      if (delivery?.isDepotResupply) {
+        locIdx = depotIndex;
+      } else {
+        const lat = delivery?.geocode?.latitude ?? delivery?.latitude;
+        const lng = delivery?.geocode?.longitude ?? delivery?.longitude;
+        if (lat == null || lng == null) continue;
+        locIdx = addLocation(`stop-${delivery.stopNumber}`, `${lat},${lng}`);
+      }
       const [twStart, twEnd] = deriveTimeWindowEpochs(
         delivery.openCloseTime,
         route.routeStartTime,
@@ -408,10 +414,16 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
     const shiftEndSeqEpoch = shiftStartEpoch + 12 * 3600;
     const shiftEndNoSeqEpoch = shiftStartEpoch + 20 * 3600;
     for (const delivery of route.deliveries) {
-      const lat = delivery?.geocode?.latitude ?? delivery?.latitude;
-      const lng = delivery?.geocode?.longitude ?? delivery?.longitude;
-      if (lat == null || lng == null) continue;
-      const locIdx = addLocation(`stop-${delivery.stopNumber}`, `${lat},${lng}`);
+      // Use depot location index for depot resupply even if stop has no coordinates
+      let locIdx;
+      if (delivery?.isDepotResupply) {
+        locIdx = depotIndex;
+      } else {
+        const lat = delivery?.geocode?.latitude ?? delivery?.latitude;
+        const lng = delivery?.geocode?.longitude ?? delivery?.longitude;
+        if (lat == null || lng == null) continue;
+        locIdx = addLocation(`stop-${delivery.stopNumber}`, `${lat},${lng}`);
+      }
       const [twStart, twEnd] = deriveTimeWindowEpochs(
         delivery.openCloseTime,
         route.routeStartTime,
