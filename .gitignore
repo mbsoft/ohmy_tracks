@@ -5,7 +5,7 @@ npm-debug.log
 .env*.local
 backend/dist/*
 frontend/dist/*
-
+geocode-cache.json
 # Temp files
 *.tmp
 *.swp
