@@ -194,6 +194,7 @@ function App() {
   const [selectedVehicleIds, setSelectedVehicleIds] = useState(new Set());
   const [selectedDeliveryKeys, setSelectedDeliveryKeys] = useState(new Set());
   const [fullOptRequestId, setFullOptRequestId] = useState(null);
+  const [fullOptResult, setFullOptResult] = useState(null);
   const [fullOptRunning, setFullOptRunning] = useState(false);
   const [vehicleCapacities, setVehicleCapacities] = useState({});
   const [savedReports, setSavedReports] = useState([]);
@@ -556,18 +557,49 @@ function App() {
           acc.seq.distance += inSeq.distance || 0;
           acc.seq.duration += inSeq.duration || 0;
           acc.seq.service += inSeq.service || 0;
+          
+          // Calculate actual route duration from start to end timestamps
+          const inSeqSteps = route.summary?.resultInSeq?.result?.routes?.[0]?.steps;
+          if (inSeqSteps && inSeqSteps.length > 0) {
+            const firstStep = inSeqSteps[0];
+            const lastStep = inSeqSteps[inSeqSteps.length - 1];
+            const startTime = firstStep.arrival ?? firstStep.start_time ?? firstStep.time;
+            // For end step, use arrival time (when vehicle arrives back)
+            const endTime = lastStep.arrival ?? lastStep.departure ?? lastStep.end_time ?? lastStep.time;
+            if (typeof startTime === 'number' && typeof endTime === 'number') {
+              acc.seq.routeDurations.push(endTime - startTime);
+            }
+          }
         }
         if (noSeq) {
           acc.no.distance += noSeq.distance || 0;
           acc.no.duration += noSeq.duration || 0;
           acc.no.service += noSeq.service || 0;
+          
+          // Calculate actual route duration from start to end timestamps
+          const noSeqSteps = route.summary?.result?.routes?.[0]?.steps;
+          if (noSeqSteps && noSeqSteps.length > 0) {
+            const firstStep = noSeqSteps[0];
+            const lastStep = noSeqSteps[noSeqSteps.length - 1];
+            const startTime = firstStep.arrival ?? firstStep.start_time ?? firstStep.time;
+            // For end step, use arrival time (when vehicle arrives back)
+            const endTime = lastStep.arrival ?? lastStep.departure ?? lastStep.end_time ?? lastStep.time;
+            if (typeof startTime === 'number' && typeof endTime === 'number') {
+              acc.no.routeDurations.push(endTime - startTime);
+            }
+          }
         }
         // accumulate per-route stats
         acc.routes += 1;
         acc.stops += route.deliveries?.length ?? 0;
         return acc;
       },
-      { seq: { distance: 0, duration: 0, service: 0 }, no: { distance: 0, duration: 0, service: 0 }, routes: 0, stops: 0 }
+      { 
+        seq: { distance: 0, duration: 0, service: 0, routeDurations: [] }, 
+        no: { distance: 0, duration: 0, service: 0, routeDurations: [] }, 
+        routes: 0, 
+        stops: 0 
+      }
     );
   };
 
@@ -756,6 +788,15 @@ function App() {
                         <p className="mt-1 text-sm text-gray-600">Distance</p>
                         <p className="mt-2 text-2xl font-bold text-gray-900">{fmtSecondsOrDash(totals.seq.duration)}</p>
                         <p className="mt-1 text-sm text-gray-600">Drive Time</p>
+                        <p className="mt-2 text-2xl font-bold text-gray-900">
+                          {(() => {
+                            const durations = totals.seq.routeDurations || [];
+                            if (durations.length === 0) return '-';
+                            const avgDuration = durations.reduce((sum, d) => sum + d, 0) / durations.length;
+                            return fmtSecondsOrDash(avgDuration);
+                          })()}
+                        </p>
+                        <p className="mt-1 text-sm text-gray-600">Avg Route Duration</p>
                       </div>
                       <div className="bg-gray-50 rounded-lg p-4 text-center">
                         <p className="text-sm font-medium text-gray-600">Optimized</p>
@@ -763,6 +804,15 @@ function App() {
                         <p className="mt-1 text-sm text-gray-600">Distance</p>
                         <p className="mt-2 text-2xl font-bold text-gray-900">{fmtSecondsOrDash(totals.no.duration)}</p>
                         <p className="mt-1 text-sm text-gray-600">Drive Time</p>
+                        <p className="mt-2 text-2xl font-bold text-gray-900">
+                          {(() => {
+                            const durations = totals.no.routeDurations || [];
+                            if (durations.length === 0) return '-';
+                            const avgDuration = durations.reduce((sum, d) => sum + d, 0) / durations.length;
+                            return fmtSecondsOrDash(avgDuration);
+                          })()}
+                        </p>
+                        <p className="mt-1 text-sm text-gray-600">Avg Route Duration</p>
                       </div>
                     </div>
                   )}
@@ -848,7 +898,7 @@ function App() {
                       })();
                       const startIdx = getIndexForCoord(startLoc);
                       const startEpoch = parseEpochFromStart(route.routeStartTime || '');
-                      const endEpoch = startEpoch + 12 * 3600;
+                      const endEpoch = startEpoch + 9 * 3600;
                       const cap = deriveVehicleCapacity(route.equipmentType || '');
                       vehicles.push({
                         id: routeId,
@@ -856,6 +906,7 @@ function App() {
                         time_window: [startEpoch, endEpoch],
                         start_index: startIdx,
                         end_index: startIdx,
+                        max_working_time: 36000,
                         layover_config: { max_continuous_time: 18000, layover_duration: 1800, include_service_time: true },
                         capacity: [
                           Number.isFinite(cap.weight) ? cap.weight * 10 : 0, // weight constraint times 10
@@ -898,7 +949,10 @@ function App() {
                       locations: { location: locations },
                       vehicles,
                       jobs,
-                      options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: true}, objective: { travel_cost: 'duration' } },
+                      options: { 
+                        routing: { mode: 'truck', traffic_timestamp: 1763629200 }, 
+                        objective: { travel_cost: 'duration' }
+                      },
                       description: 'Full Optimization (selected vehicles and deliveries)'
                     };
                     console.log('Full Optimization request body:', JSON.stringify(requestBody, null, 2));
@@ -916,8 +970,9 @@ function App() {
                       console.error('optimize-full error response:', txt);
                       throw new Error('Full optimization failed');
                     }
-                    const { requestId } = await resp.json();
+                    const { requestId, result } = await resp.json();
                     setFullOptRequestId(requestId || null);
+                    setFullOptResult(result || null);
                   } catch (e) {
                     console.error('Error building Full Optimization request:', e);
                   } finally {
@@ -938,6 +993,83 @@ function App() {
                 )}
               </button>
             </div>
+
+            {/* Summary Statistics */}
+            {fullOptResult && fullOptResult.result && (
+              <div className="bg-white rounded-lg shadow p-6 mb-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Full Optimization Summary</h3>
+                
+                {/* Top-level stats */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 justify-items-center mb-6">
+                  <div className="text-center">
+                    <p className="text-sm font-medium text-gray-600">Vehicles Used</p>
+                    <p className="mt-2 text-3xl font-bold text-gray-900">
+                      {fullOptResult.result.routes?.length ?? 0}
+                    </p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm font-medium text-gray-600">Assigned Deliveries</p>
+                    <p className="mt-2 text-3xl font-bold text-gray-900">
+                      {fullOptResult.result.routes?.reduce((sum, route) => {
+                        const deliveryCount = route.steps?.filter(step => step.type === 'job').length ?? 0;
+                        return sum + deliveryCount;
+                      }, 0) ?? 0}
+                    </p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm font-medium text-gray-600">Avg Deliveries per Vehicle</p>
+                    <p className="mt-2 text-3xl font-bold text-gray-900">
+                      {(() => {
+                        const vehicleCount = fullOptResult.result.routes?.length ?? 0;
+                        const totalDeliveries = fullOptResult.result.routes?.reduce((sum, route) => {
+                          const deliveryCount = route.steps?.filter(step => step.type === 'job').length ?? 0;
+                          return sum + deliveryCount;
+                        }, 0) ?? 0;
+                        return vehicleCount > 0 ? (totalDeliveries / vehicleCount).toFixed(1) : 0;
+                      })()}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Optimization metrics */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="bg-gray-50 rounded-lg p-4 text-center">
+                    <p className="text-sm font-medium text-gray-600">Total Distance</p>
+                    <p className="mt-2 text-2xl font-bold text-gray-900">
+                      {fmtMilesOrDash(fullOptResult.result.summary?.distance)}
+                    </p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-4 text-center">
+                    <p className="text-sm font-medium text-gray-600">Drive Time</p>
+                    <p className="mt-2 text-2xl font-bold text-gray-900">
+                      {fmtSecondsOrDash(fullOptResult.result.summary?.duration)}
+                    </p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-4 text-center">
+                    <p className="text-sm font-medium text-gray-600">Average Route Duration</p>
+                    <p className="mt-2 text-2xl font-bold text-gray-900">
+                      {(() => {
+                        const duration = fullOptResult.result.summary?.duration ?? 0;
+                        const service = fullOptResult.result.summary?.service ?? 0;
+                        const routeCount = fullOptResult.result.routes?.length ?? 0;
+                        if (routeCount === 0 || (duration === 0 && service === 0)) return '-';
+                        const avgDuration = (duration + service) / routeCount;
+                        return fmtSecondsOrDash(avgDuration);
+                      })()}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Unassigned warning */}
+                {fullOptResult.result.unassigned && fullOptResult.result.unassigned.length > 0 && (
+                  <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <p className="text-sm font-medium text-yellow-800">
+                      ⚠️ Unassigned Deliveries: {fullOptResult.result.unassigned.length}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Build vehicles and deliveries (excluding Paid Break) */}
             {(() => {

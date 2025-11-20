@@ -303,6 +303,7 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
       ...resultNoSeq,
       requestId: requestIdNoSeq,
       requestIds: { inSequence: requestIdInSeq, noSequence: requestIdNoSeq },
+      resultInSeq: resultInSeq,
       summaries: {
         inSequence: resultInSeq?.result?.summary,
         noSequence: resultNoSeq?.result?.summary,
@@ -563,9 +564,10 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
     const noUnassigned = Array.isArray(resultNoSeq?.result?.unassigned) ? resultNoSeq.result.unassigned.length : 0;
 
     return {
+      ...resultNoSeq,
       routeId: route.routeId,
       requestIds: { inSequence: requestIdInSeq, noSequence: requestIdNoSeq },
-      result: resultNoSeq,
+      resultInSeq: resultInSeq,
       summaries: {
         inSequence: resultInSeq?.result?.summary,
         noSequence: resultNoSeq?.result?.summary,
