@@ -135,7 +135,7 @@ if (geocodeCache.has('ABC123')) {
 
 ### API Key
 
-**IMPORTANT**: The default API key `'opensesame'` is a placeholder and will likely not work. You need to obtain a valid API key from NextBillion.ai.
+**IMPORTANT**: The default API key `'**********'` is a placeholder and will likely not work. You need to obtain a valid API key from NextBillion.ai.
 
 Set your NextBillion API key via environment variable:
 

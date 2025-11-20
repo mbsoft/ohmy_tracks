@@ -57,7 +57,7 @@ npm run frontend
 
 ### NextBillion API Key
 
-The application uses the NextBillion.ai Discover API for geocoding delivery addresses. By default, it uses the API key 'opensesame'.
+The application uses the NextBillion.ai Discover API for geocoding delivery addresses. By default, it uses the API key '******'.
 
 To use your own API key, set the environment variable:
 

@@ -151,7 +151,7 @@ app.post('/api/optimize/:routeId', async (req, res) => {
       return res.status(400).json({ error: 'Depot location is required', details: 'Please provide a start/end location (latitude,longitude)' });
     }
 
-    const apiKey = process.env.NEXTBILLION_API_KEY || 'opensesame';
+    const apiKey = process.env.NEXTBILLION_API_KEY || '';
     const summary = await optimizeRoutes(routeData, fileName, process.env, depotLocation, inSequence);
     console.log('Optimization complete:', routeId, 'summary:', summary?.result?.summary || 'no summary');
     res.json(summary);
@@ -181,7 +181,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
     parsedData.routes.forEach(route => route.status = 'in progress');
 
     // Geocode all deliveries
-    const apiKey = process.env.NEXTBILLION_API_KEY || 'opensesame';
+    const apiKey = process.env.NEXTBILLION_API_KEY || '';
     const geocodedData = await geocodeRoutes(parsedData, apiKey);
 
     // Update status to 'complete'
@@ -262,7 +262,7 @@ app.get('*', (req, res, next) => {
 
 app.listen(PORT, () => {
   console.log(`Backend server running on http://localhost:${PORT}`);
-  const apiKey = process.env.NEXTBILLION_API_KEY || 'opensesame';
+  const apiKey = process.env.NEXTBILLION_API_KEY || '';
   console.log(`NextBillion API Key: ${apiKey.substring(0, 10)}...${apiKey.length > 10 ? ' (loaded)' : ' (default)'}`);
 });
 

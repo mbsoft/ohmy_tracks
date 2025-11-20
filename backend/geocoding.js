@@ -4,13 +4,13 @@ const geocodeCache = require('./geocodeCache');
 /**
  * Geocode an address using NextBillion.ai Discover API
  * @param {string} address - The address to geocode
- * @param {string} apiKey - NextBillion API key (default: 'opensesame')
+ * @param {string} apiKey - NextBillion API key (default: ' ')
  * @param {boolean} verbose - Whether to log detailed request/response info (default: false)
  * @param {Object} proximityHint - Optional {lat, lng, radius} for location-based search
  * @param {boolean} isLocationNameSearch - Whether this is a location name search (removes fallback/score params)
  * @returns {Promise<Object>} Geocoding result with coordinates
  */
-async function geocodeAddress(address, apiKey = 'opensesame', verbose = false, proximityHint = null, isLocationNameSearch = false) {
+async function geocodeAddress(address, apiKey = '', verbose = false, proximityHint = null, isLocationNameSearch = false) {
   if (!address || address.trim() === '') {
     return {
       success: false,
@@ -95,7 +95,7 @@ async function geocodeAddress(address, apiKey = 'opensesame', verbose = false, p
  * @param {number} delayMs - Delay between requests in milliseconds
  * @returns {Promise<Array<Object>>} Array of geocoding results
  */
-async function geocodeMultiple(addresses, apiKey = 'opensesame', delayMs = 100) {
+async function geocodeMultiple(addresses, apiKey = '', delayMs = 100) {
   const results = [];
   
   for (let i = 0; i < addresses.length; i++) {
@@ -161,7 +161,7 @@ function findNearestGeocodedLocation(deliveries, currentIndex) {
  * @param {string} apiKey - NextBillion API key
  * @returns {Promise<Object>} Parsed data with geocoded coordinates added
  */
-async function geocodeRoutes(parsedData, apiKey = 'opensesame') {
+async function geocodeRoutes(parsedData, apiKey = '') {
   console.log(`Starting geocoding for ${parsedData.totalDeliveries} deliveries...`);
   
   let geocodedCount = 0;

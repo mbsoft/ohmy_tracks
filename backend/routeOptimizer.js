@@ -140,7 +140,7 @@ async function submitAndPoll(requestBody, apiKey) {
 
 async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient) {
   const routes = routeData?.routes || [];
-  const apiKey = env.NEXTBILLION_API_KEY || 'opensesame';
+  const apiKey = env.NEXTBILLION_API_KEY || '';
 
   const depotLocation = depotLocationFromClient || determineDepotLocation(fileName);
   if (!depotLocation) {
