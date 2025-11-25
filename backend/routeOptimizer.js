@@ -221,7 +221,9 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
         }
       } else {
         // No pickups in route → send as simple jobs without capacity arrays
-        baseJobsNoSeq.push(common);
+        const selectorRaw = String(delivery?.Selector ?? delivery?.selector ?? '').trim().toUpperCase();
+        const sequence_order = selectorRaw === 'B' ? 1 : 99;
+        baseJobsNoSeq.push({ ...common, sequence_order });
       }
     }
 
@@ -464,7 +466,9 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
           });
         }
       } else {
-        baseJobsNoSeq.push(common);
+        const selectorRaw = String(delivery?.Selector ?? delivery?.selector ?? '').trim().toUpperCase();
+        const sequence_order = selectorRaw === 'B' ? 1 : 99;
+        baseJobsNoSeq.push({ ...common, sequence_order });
       }
     }
 
