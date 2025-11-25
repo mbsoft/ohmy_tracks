@@ -1,0 +1,27 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Launch Backend",
+      "program": "${workspaceFolder}/backend/server.js",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/backend/.env",
+      "env": {
+        "NODE_ENV": "development"
+      },
+      "protocol": "inspector",
+      "console": "integratedTerminal"
+    },
+    {
+        "type": "chrome",
+        "request": "launch",
+        "name": "Launch Chrome against localhost",
+        "url": "http://localhost:3000",  // Ensure this URL matches your dev server
+        "webRoot": "${workspaceFolder}/frontend/src",
+        "sourceMaps": true,
+        "preLaunchTask": "npm: start"  // This assumes you're using 'npm start' to launch your React app
+      }
+  ]
+}

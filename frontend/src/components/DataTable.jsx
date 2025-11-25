@@ -290,6 +290,7 @@ function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingR
                     <thead className="bg-blue-100">
                       <tr>
                         <th className="px-5 py-3 text-left text-sm font-medium text-blue-900 uppercase tracking-wider">Stop #</th>
+                        <th className="px-5 py-3 text-left text-sm font-medium text-blue-900 uppercase tracking-wider">Selector</th>
                         <th className="px-5 py-3 text-left text-sm font-medium text-blue-900 uppercase tracking-wider">Location ID</th>
                         <th className="px-5 py-3 text-left text-sm font-medium text-blue-900 uppercase tracking-wider">Location Name</th>
                         <th className="px-5 py-3 text-left text-sm font-medium text-blue-900 uppercase tracking-wider">Address</th>
@@ -309,8 +310,9 @@ function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingR
                         <tr key={deliveryIndex} className="hover:bg-blue-100 transition-colors">
                           <td className="px-5 py-3 whitespace-nowrap text-blue-900">
                             {delivery.isDepotResupply ? 'Depot' : (delivery.stopNumber || '-')}
-                            {!delivery.isDepotResupply && delivery.NB_ORDER ? `(${delivery.NB_ORDER})` : ''}
+                            {!delivery.isDepotResupply && !delivery.isBreak && delivery.NB_ORDER ? `(${delivery.NB_ORDER})` : ''}
                           </td>
+                          <td className="px-5 py-3 whitespace-nowrap text-blue-900">{delivery.Selector || 'S'}</td>
                           <td className="px-5 py-3 whitespace-nowrap text-blue-900">{delivery.locationId || '-'}</td>
                           <td className="px-5 py-3 text-blue-900">{delivery.locationName || '-'}</td>
                           <td className="px-5 py-3 text-blue-900">{delivery.address || '-'}</td>

@@ -48,12 +48,21 @@ function SavedReports({ reports, onSelect, onDelete, onRefresh }) {
                 </p>
               </div>
               <div className="flex items-center space-x-4">
-                <button
-                  onClick={() => onSelect(report.id)}
-                  className="px-3 py-1 text-sm font-medium text-white bg-[#8F59A0] rounded-md hover:bg-[#7a3f87]"
-                >
-                  Load
-                </button>
+                {(() => {
+                  const name = String(report.fileName || '').toLowerCase();
+                  const isExtract = /\.extract\.xls[x]?$/.test(name) || /\s+extract\.xls[x]?$/.test(name);
+                  if (!isExtract) {
+                    return (
+                      <button
+                        onClick={() => onSelect(report.id)}
+                        className="px-3 py-1 text-sm font-medium text-white bg-[#8F59A0] rounded-md hover:bg-[#7a3f87]"
+                      >
+                        Load
+                      </button>
+                    );
+                  }
+                  return null;
+                })()}
                 <button
                   onClick={() => onDelete(report.id)}
                   className="px-3 py-1 text-sm font-medium text-red-600 border border-red-300 rounded-md hover:bg-red-50"

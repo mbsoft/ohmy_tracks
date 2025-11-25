@@ -5,6 +5,7 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const XLSX = require('xlsx');
 const jwt = require('jsonwebtoken');
 const { parseOmnitracXLS } = require('./parser');
 const { geocodeRoutes } = require('./geocoding');
@@ -85,6 +86,97 @@ const upload = multer({
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Server is running' });
 });
+
+// -------- Extract file support --------
+function normalizeForKey(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[^a-z0-9 ]/g, '')
+    .trim();
+}
+
+async function readExtractMappingFor(baseFileName) {
+  if (!baseFileName) return { map: {}, from: null };
+  const base = String(baseFileName).replace(/\.xlsx?$/i, '');
+  const candidates = [
+    `${base}.extract.xlsx`,
+    `${base}.extract.xls`,
+    `${base} extract.xlsx`,
+    `${base} extract.xls`,
+  ];
+  const searchRoots = [
+    process.cwd(),
+    __dirname,
+    path.join(__dirname, '..'),
+  ];
+  let foundPath = null;
+  for (const root of searchRoots) {
+    for (const name of candidates) {
+      const p = path.join(root, name);
+      try {
+        fs.accessSync(p, fs.constants.R_OK);
+        foundPath = p;
+        break;
+      } catch {
+        // continue
+      }
+    }
+    if (foundPath) break;
+  }
+  if (!foundPath) {
+    return { map: {}, from: null };
+  }
+  const wb = XLSX.read(fs.readFileSync(foundPath), { type: 'buffer' });
+  const sheetName = wb.SheetNames[0];
+  const sheet = wb.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+  const headerKeys = rows.length > 0 ? Object.keys(rows[0]) : [];
+  const findKey = (...cands) => {
+    const lowerMap = new Map(headerKeys.map(k => [k.toLowerCase(), k]));
+    for (const c of cands) {
+      const key = lowerMap.get(String(c).toLowerCase());
+      if (key) return key;
+    }
+    for (const k of headerKeys) {
+      const kl = k.toLowerCase();
+      if (cands.some(c => kl.includes(String(c).toLowerCase()))) return k;
+    }
+    return null;
+  };
+  const addrKey = findKey('Address Line 1', 'Address1', 'Address', 'Street', 'AddressLine1');
+  const cityKey = findKey('City', 'Town');
+  const selectorKey = findKey('Selector', 'B/S', 'BS', 'Type', 'Order Type', 'Select');
+  const map = {};
+  for (const row of rows) {
+    const street = addrKey ? row[addrKey] : '';
+    const city = cityKey ? row[cityKey] : '';
+    if (!street || !city) continue;
+    let sel = 'S';
+    if (selectorKey) {
+      const val = String(row[selectorKey] ?? '').trim().toUpperCase();
+      sel = val === 'B' ? 'B' : 'S';
+    } else {
+      const hasB = Object.values(row).some(v => String(v).trim().toUpperCase() === 'B');
+      sel = hasB ? 'B' : 'S';
+    }
+    const key = normalizeForKey(`${street} ${city}`);
+    if (key) map[key] = sel;
+  }
+  return { map, from: foundPath };
+}
+
+app.get('/api/extract-lookup', async (req, res) => {
+  try {
+    const fileName = req.query.file || req.query.forFileName || '';
+    const { map, from } = await readExtractMappingFor(fileName);
+    res.json({ ok: true, count: Object.keys(map).length, from, map });
+  } catch (err) {
+    console.error('extract-lookup error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+// -------------------------------------
 
 // Clear geocoding cache endpoint
 app.delete('/api/cache/clear', (req, res) => {

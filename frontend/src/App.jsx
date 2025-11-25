@@ -5,6 +5,14 @@ import LoginPage from './components/LoginPage';
 import SavedReports from './components/SavedReports';
 import { exportToCSV } from './utils/csvExport';
 
+function normalizeForKey(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[^a-z0-9 ]/g, '')
+    .trim();
+}
+
 function toFixed6(num) {
   const n = Number(num);
   if (!Number.isFinite(n)) return '';
@@ -123,7 +131,10 @@ function fmtSecondsOrDash(seconds) {
 }
 
 function extractNbTimesAndOrder(nbResult) {
-  const steps = nbResult?.result?.routes?.[0]?.steps || [];
+  // Support both shapes: either the NB result is wrapped under `result`,
+  // or it is the NB object itself with top-level `routes`.
+  const root = nbResult?.result || nbResult;
+  const steps = root?.routes?.[0]?.steps || [];
   const timesByJobId = {};
   const orderByJobId = {};
   let order = 0;
@@ -180,6 +191,26 @@ function extractLayoverTimes(steps) {
   const arrival = lay.arrival ?? lay.start_time ?? lay.time ?? lay.start;
   const departure = lay.departure ?? lay.end_time ?? (arrival != null ? arrival + (lay.service || 0) + (lay.setup || 0) + (lay.waiting_time || 0) : undefined);
   return { arrival, departure };
+}
+
+// Resolve the NextBillion step id for a delivery, trying multiple keys and fuzzy matches
+function resolveNbIdForDelivery(timesByJobId, delivery, routeId) {
+  const legacyJobId = `${delivery.stopNumber}-${routeId}`;
+  const shipmentDeliveryId = delivery.locationId ? `${delivery.locationId}D` : null;
+  const legacyShipmentDeliveryId = `${legacyJobId}D`;
+  // Preferred explicit ids
+  if (shipmentDeliveryId && timesByJobId[shipmentDeliveryId]) return shipmentDeliveryId;
+  if (timesByJobId[legacyShipmentDeliveryId]) return legacyShipmentDeliveryId;
+  if (timesByJobId[legacyJobId]) return legacyJobId;
+  // Fuzzy: any key ending with 'D' that contains the locationId
+  if (delivery.locationId) {
+    const loc = String(delivery.locationId);
+    const fuzzy = Object.keys(timesByJobId || {}).find((k) => k && k.endsWith('D') && k.includes(loc));
+    if (fuzzy) return fuzzy;
+  }
+  // Last resort: first key that includes the legacy id
+  const fuzzyLegacy = Object.keys(timesByJobId || {}).find((k) => k && k.includes(legacyJobId));
+  return fuzzyLegacy || legacyJobId;
 }
 
 function App() {
@@ -322,24 +353,26 @@ function App() {
       }
 
       const nbResult = await response.json();
-      const { timesByJobId, orderByJobId, steps } = extractNbTimesAndOrder(nbResult);
+      // Support both shapes: { result: {...} } and direct NB result object
+      const { timesByJobId, orderByJobId, steps } = extractNbTimesAndOrder(nbResult.result || nbResult);
       const layoverTimes = extractLayoverTimes(steps);
 
       setData((oldData) => {
         const updatedRoutes = oldData.routes.map((route) => {
           if (route.routeId !== routeId) return route;
           const updatedDeliveries = route.deliveries.map((delivery) => {
-            const legacyJobId = `${delivery.stopNumber}-${route.routeId}`;
-            const shipmentDeliveryId = delivery.locationId ? `${delivery.locationId}D` : null;
-            const jobTimes = (shipmentDeliveryId && timesByJobId[shipmentDeliveryId]) || timesByJobId[legacyJobId];
-            const order = (shipmentDeliveryId && orderByJobId[shipmentDeliveryId]) || orderByJobId[legacyJobId];
+            const chosenId = resolveNbIdForDelivery(timesByJobId, delivery, route.routeId);
+            const jobTimes = timesByJobId[chosenId];
+            const order = orderByJobId[chosenId];
             let NB_ARRIVAL = jobTimes?.arrival != null ? formatEpochToHHMM(jobTimes.arrival) : delivery.NB_ARRIVAL;
             let NB_DEPART = jobTimes?.departure != null ? formatEpochToHHMM(jobTimes.departure) : delivery.NB_DEPART;
             if (delivery.isBreak && layoverTimes) {
               NB_ARRIVAL = layoverTimes.arrival != null ? formatEpochToHHMM(layoverTimes.arrival) : NB_ARRIVAL;
               NB_DEPART = layoverTimes.departure != null ? formatEpochToHHMM(layoverTimes.departure) : NB_DEPART;
             }
-            return { ...delivery, NB_ARRIVAL, NB_DEPART, NB_ORDER: order };
+            // Do not count break stop as a NextBillion stop number
+            const NB_ORDER = delivery.isBreak ? undefined : order;
+            return { ...delivery, NB_ARRIVAL, NB_DEPART, NB_ORDER };
           });
           return { ...route, deliveries: updatedDeliveries, summary: nbResult };
         });
@@ -391,7 +424,39 @@ function App() {
       }
 
       const result = await response.json();
+      // Set base data first
       setData({ ...result, fileName: file.name });
+      // Try to fetch and apply selector mapping from "<file>.extract.xlsx"
+      try {
+        const resp = await fetch(`/api/extract-lookup?file=${encodeURIComponent(file.name)}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (resp.ok) {
+          const { map } = await resp.json();
+          if (map && Object.keys(map).length > 0) {
+            setData((old) => {
+              if (!old?.routes) return old;
+              const updatedRoutes = (old.routes || []).map((route) => {
+                const updatedDeliveries = (route.deliveries || []).map((d) => {
+                  const norm = normalizeForKey(d.address || '');
+                  let Selector = d.Selector || 'S';
+                  for (const [k, v] of Object.entries(map)) {
+                    if (k && norm.includes(k)) {
+                      Selector = v === 'B' ? 'B' : 'S';
+                      break;
+                    }
+                  }
+                  return { ...d, Selector };
+                });
+                return { ...route, deliveries: updatedDeliveries };
+              });
+              return { ...old, routes: updatedRoutes };
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('extract-lookup failed:', e);
+      }
       fetchSavedReports(); // Refresh the list of saved reports
     } catch (err) {
       if (err.name === 'AbortError') {
@@ -418,6 +483,40 @@ function App() {
       }
       const result = await response.json();
       setData(result);
+      // Enrich with extract selectors, if an extract file is present
+      const fileName = result?.fileName;
+      if (fileName) {
+        try {
+          const resp = await fetch(`/api/extract-lookup?file=${encodeURIComponent(fileName)}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (resp.ok) {
+            const { map } = await resp.json();
+            if (map && Object.keys(map).length > 0) {
+              setData((old) => {
+                if (!old?.routes) return old;
+                const updatedRoutes = (old.routes || []).map((route) => {
+                  const updatedDeliveries = (route.deliveries || []).map((d) => {
+                    const norm = normalizeForKey(d.address || '');
+                    let Selector = d.Selector || 'S';
+                    for (const [k, v] of Object.entries(map)) {
+                      if (k && norm.includes(k)) {
+                        Selector = v === 'B' ? 'B' : 'S';
+                        break;
+                      }
+                    }
+                    return { ...d, Selector };
+                  });
+                  return { ...route, deliveries: updatedDeliveries };
+                });
+                return { ...old, routes: updatedRoutes };
+              });
+            }
+          }
+        } catch (e) {
+          console.warn('extract-lookup failed:', e);
+        }
+      }
     } catch (err) {
       setError(err.message);
       console.error('Error loading report:', err);
@@ -466,28 +565,46 @@ function App() {
       }
       const result = await response.json(); // { routes: [ { routeId, requestIds, result, summaries } ] }
       const byId = new Map();
-      (result.routes || []).forEach((r) => byId.set(String(r.routeId), r));
+      (result.routes || []).forEach((r) => {
+        const exact = String(r.routeId);
+        const trimmed = exact.trim();
+        const numeric = (exact.match(/^\d+/) || [null])[0];
+        const numericDash = numeric ? `${numeric} -` : null;
+        byId.set(exact, r);
+        byId.set(trimmed, r);
+        if (numeric) byId.set(numeric, r);
+        if (numericDash) byId.set(numericDash, r);
+      });
 
       setData((oldData) => {
         if (!oldData?.routes) return oldData;
         const updatedRoutes = oldData.routes.map((route) => {
-          const nbRoute = byId.get(String(route.routeId));
+          const exact = String(route.routeId);
+          const trimmed = exact.trim();
+          const numeric = (exact.match(/^\d+/) || [null])[0];
+          const numericDash = numeric ? `${numeric} -` : null;
+          const nbRoute =
+            byId.get(exact) ||
+            byId.get(trimmed) ||
+            (numeric && byId.get(numeric)) ||
+            (numericDash && byId.get(numericDash));
           if (!nbRoute) return route;
           // nbRoute.result is the full NB poll response; maintain compatibility with single-route path
           const { timesByJobId, orderByJobId, steps } = extractNbTimesAndOrder(nbRoute.result || nbRoute);
           const layoverTimes = extractLayoverTimes(steps);
           const updatedDeliveries = route.deliveries.map((delivery) => {
-            const legacyJobId = `${delivery.stopNumber}-${route.routeId}`;
-            const shipmentDeliveryId = delivery.locationId ? `${delivery.locationId}D` : null;
-            const jobTimes = (shipmentDeliveryId && timesByJobId[shipmentDeliveryId]) || timesByJobId[legacyJobId];
-            const order = (shipmentDeliveryId && orderByJobId[shipmentDeliveryId]) || orderByJobId[legacyJobId];
+            const chosenId = resolveNbIdForDelivery(timesByJobId, delivery, route.routeId);
+            const jobTimes = timesByJobId[chosenId];
+            const order = orderByJobId[chosenId];
             let NB_ARRIVAL = jobTimes?.arrival != null ? formatEpochToHHMM(jobTimes.arrival) : delivery.NB_ARRIVAL;
             let NB_DEPART = jobTimes?.departure != null ? formatEpochToHHMM(jobTimes.departure) : delivery.NB_DEPART;
             if (delivery.isBreak && layoverTimes) {
               NB_ARRIVAL = layoverTimes.arrival != null ? formatEpochToHHMM(layoverTimes.arrival) : NB_ARRIVAL;
               NB_DEPART = layoverTimes.departure != null ? formatEpochToHHMM(layoverTimes.departure) : NB_DEPART;
             }
-            return { ...delivery, NB_ARRIVAL, NB_DEPART, NB_ORDER: order };
+            // Do not count break stop as a NextBillion stop number
+            const NB_ORDER = delivery.isBreak ? undefined : order;
+            return { ...delivery, NB_ARRIVAL, NB_DEPART, NB_ORDER };
           });
           return { ...route, deliveries: updatedDeliveries, summary: nbRoute };
         });
