@@ -1048,10 +1048,13 @@ function App() {
                         const adjPallets = Number.isFinite(palletsNum) ? Math.ceil(palletsNum) : 0;
                         const adjWeight = Number.isFinite(weightNum) ? Math.round(weightNum * 10) : 0; // ensure whole integer
                         const serviceSeconds = serviceToSeconds(d.service);
+                        const selectorRaw = String(d?.Selector ?? d?.selector ?? '').trim().toUpperCase();
+                        const sequence_order = selectorRaw === 'B' ? 1 : 99;
                         const baseJob = {
                           id: `${d.locationId || ''}-${route.routeId || rIndex}-${dIndex}`,
                           location_index: locIdx,
                           service: serviceSeconds,
+                          sequence_order,
                         };
                         if (d.isDepotResupply) {
                           baseJob.pickup = [adjWeight, adjPallets];
@@ -1228,6 +1231,7 @@ function App() {
                     key: `${route.routeId ?? rIndex}::${dIndex}`,
                     step: d.stopNumber || '',
                     isDepotResupply: !!d.isDepotResupply,
+                    selector: (String(d?.Selector ?? d?.selector ?? '').trim().toUpperCase() === 'B' ? 'B' : 'S'),
                     locationId: d.locationId || '',
                     locationName: d.locationName || '',
                     address: d.address || '',
@@ -1339,6 +1343,7 @@ function App() {
                               <input type="checkbox" checked={allDeliveriesSelected} onChange={toggleAllDeliveries} />
                             </th>
                             <th className="px-4 py-3 text-left font-medium text-gray-700">Step #</th>
+                            <th className="px-4 py-3 text-left font-medium text-gray-700">Selector</th>
                             <th className="px-4 py-3 text-left font-medium text-gray-700">Location ID</th>
                             <th className="px-4 py-3 text-left font-medium text-gray-700">Location Name</th>
                             <th className="px-4 py-3 text-left font-medium text-gray-700">Address</th>
@@ -1361,6 +1366,7 @@ function App() {
                                 />
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap">{d.isDepotResupply ? 'Depot' : (d.step || '—')}</td>
+                              <td className="px-4 py-3 whitespace-nowrap">{d.selector || 'S'}</td>
                               <td className="px-4 py-3 whitespace-nowrap">{d.locationId || '—'}</td>
                               <td className="px-4 py-3">{d.locationName || '—'}</td>
                               <td className="px-4 py-3">{d.address || '—'}</td>
