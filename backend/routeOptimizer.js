@@ -12,11 +12,31 @@ function describeAxiosError(error) {
   return error?.message || 'Unknown error';
 }
 
+function ensurePocRouteDates(route, fileName) {
+  const isPoc = /^POC_/i.test(String(fileName || ''));
+  if (!isPoc) return;
+  const hasValidStart = route?.routeStartTime && String(route.routeStartTime).trim().length > 0;
+  if (hasValidStart) return;
+  // Try to infer from deliveries' day token (M/T/W/R/F)
+  const dayTok = (route?.deliveries || []).map((d) => String(d?.day || '').toUpperCase()[0]).find((c) => ['M','T','W','R','F'].includes(c));
+  if (!dayTok) return;
+  const baseDateByDay = { M: '10/06/2025', T: '10/07/2025', W: '10/08/2025', R: '10/09/2025', F: '10/10/2025' };
+  const dateStr = baseDateByDay[dayTok];
+  if (dateStr) {
+    route.routeStartTime = `${dateStr} 02:00 EDT`;
+    route.routeEndTime = `${dateStr} 23:59 EDT`;
+  }
+}
+
 function determineDepotLocation(fileName) {
   if (fileName && fileName.startsWith('ATL')) {
     return '33.807970,-84.43696';
   } else if (fileName && fileName.startsWith('NB Mays')) {
     return '39.44214,-74.70332';
+  } else if (fileName && fileName.startsWith('NJ.CT.RI')) {
+    return '41.43496296634675,-75.61559106429858';
+  } else if (fileName && fileName.includes('Tiffin')) {
+    return '41.11225919719799,-83.21798883794955';
   }
   return null; // Default or handle error
 }
@@ -149,6 +169,8 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
 
   let finalCombined = null;
   for (const route of routes) {
+    // Ensure POC routes have a concrete routeStartTime/EndTime based on Day letter
+    ensurePocRouteDates(route, fileName);
     const locations = [];
     const indexByKey = new Map();
     const addLocation = (key, latlng) => {
@@ -159,13 +181,21 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
       return indexByKey.get(key);
     };
 
-    const depotIndex = addLocation('depot', depotLocation);
+    // Override depot for POC TIFF location
+    const isPocFile = /^POC_/i.test(String(fileName || ''));
+    const routeLocCode = String(route?.location || '').trim().toUpperCase();
+    const pocDepot = (isPocFile && routeLocCode === 'TIFF')
+      ? '41.11198095581076,-83.21802034662716'
+      : depotLocation;
+    const depotIndex = addLocation('depot', pocDepot);
 
     const baseJobs = [];
     const baseJobsNoSeq = [];
     const shipmentsNoSeq = [];
+    const isPoc = /^POC_/i.test(String(fileName || ''));
     const hasPickup = Array.isArray(route.deliveries) && route.deliveries.some((d) => !!d?.isDepotResupply);
-    const shiftStartEpoch = new Date(route.routeStartTime).getTime() / 1000;
+    // Avoid Date parsing ambiguities; derive epoch using our parser with explicit date context
+    const shiftStartEpoch = convertToEpoch('00:00', route.routeStartTime);
     const shiftEndSeqEpoch = shiftStartEpoch + 12 * 3600;
     const shiftEndNoSeqEpoch = shiftStartEpoch + 20 * 3600;
     for (const delivery of route.deliveries) {
@@ -185,18 +215,27 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
         delivery.arrival,
         delivery.depart
       );
+      // Derive dimension values once per stop
+      const palletsNumAll = parseNumberSafe(delivery.cube || delivery.pallets);
+      const weightNumAll = parseNumberSafe(delivery.weight);
+      const adjPalletsAll = Math.max(0, Math.ceil(palletsNumAll));
+      const adjWeight10All = Math.max(0, Math.round(weightNumAll * 10));
+      const pocJobId = (() => {
+        const cust = String(delivery?.customerNumber || '').trim();
+        const shipTo = String(delivery?.shipToNumber || '').trim();
+        const stop = String(delivery?.stopNumber || '').trim();
+        if (isPoc && cust && shipTo && stop) return `${cust}-${shipTo}-${stop}`;
+        return null;
+      })();
       const common = {
-        id: `${delivery.stopNumber}-${route.routeId}`,
+        id: pocJobId || `${delivery.stopNumber}-${route.routeId}`,
         description: `${delivery.stopNumber}|${delivery.locationName}|${delivery.address}|${delivery.arrival}-${delivery.depart}`,
-        service: convertToSecondsSafe(delivery.service),
+        service: 1200,
         location_index: locIdx,
         time_windows: [[twStart, twEnd]],
+        ...(isPoc && !delivery.isDepotResupply ? { delivery: [adjPalletsAll] } : {})
       };
       baseJobs.push(common);
-      const palletsNum = parseNumberSafe(delivery.cube || delivery.pallets);
-      const weightNum = parseNumberSafe(delivery.weight);
-      const adjPallets = Math.max(0, Math.ceil(palletsNum));
-      const adjWeight10 = Math.max(0, Math.round(weightNum * 10));
       if (hasPickup) {
         // Build shipments for all non-pickup stops; skip explicit pickup-only jobs
         if (!delivery.isDepotResupply) {
@@ -213,25 +252,39 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
             delivery: {
               id: `${locationIdRaw}D`,
               location_index: locIdx,
-              service: convertToSecondsSafe(delivery.service),
+              service: 1200,
               time_windows: [[twStart, twEnd]]
             },
-            amount: [adjWeight10, adjPallets]
+            amount: (isPocVehicle ? [adjPalletsAll] : [adjWeight10All, adjPalletsAll])
           });
         }
       } else {
         // No pickups in route → send as simple jobs without capacity arrays
         const selectorRaw = String(delivery?.Selector ?? delivery?.selector ?? '').trim().toUpperCase();
         const sequence_order = selectorRaw === 'B' ? 1 : 99;
-        baseJobsNoSeq.push({ ...common, sequence_order });
+        const jobNoSeq = isPoc && !delivery.isDepotResupply
+          ? { ...common, sequence_order, delivery: [adjPalletsAll] }
+          : { ...common, sequence_order };
+        baseJobsNoSeq.push(jobNoSeq);
       }
     }
 
     // shiftStartEpoch/shiftEndSeqEpoch already computed above
 
+    // Compute POC-specific pallet-based vehicle capacity and label
+    const isPocVehicle = /^POC_/i.test(String(fileName || ''));
+    const totalPalletsAll = (route.deliveries || []).reduce((sum, d) => {
+      if (d?.isBreak) return sum;
+      const pal = parseNumberSafe(d?.cube || d?.pallets);
+      return sum + (Number.isFinite(pal) ? pal : 0);
+    }, 0);
+    const pocPalletCap = totalPalletsAll > 14 ? 26 : 14;
+    const pocTypeLabel = totalPalletsAll > 14 ? 'SEMI' : 'STRAIGHT';
+
+    const baseDescription = `${route.routeId}-${route.driverName}-${route.deliveries.length}`;
     const vehicle = {
       id: route.routeId,
-      description: `${route.routeId}-${route.driverName}-${route.deliveries.length}`,
+      description: isPocVehicle ? `${baseDescription} ${pocTypeLabel}` : baseDescription,
       time_window: [shiftStartEpoch, shiftEndSeqEpoch],
       start_index: depotIndex,
       end_index: depotIndex,
@@ -239,7 +292,13 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
         max_continuous_time: 18000,
         layover_duration: 1800,
         include_service_time: true
-      }
+      },
+      ...(isPocVehicle ? {
+        capacity: (() => {
+          // For POC runs, use single-dimension capacity (pallets only)
+          return [pocPalletCap];
+        })()
+      } : {})
     };
 
     const vehicleSeq = {
@@ -249,16 +308,23 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
     const vehicleNoSeq = {
       ...vehicle,
       time_window: [shiftStartEpoch, shiftEndSeqEpoch],
-      ...(hasPickup
+      ...(isPocVehicle
         ? {
             capacity: (() => {
-              const cap = deriveVehicleCapacity(route.equipmentType);
-              const weight10 = Math.max(0, Math.round((cap.weight || 0) * 10));
-              const pallets = Math.max(0, Math.round(cap.pallets || 0));
-              return [weight10, pallets];
-            })(),
+              // For POC runs, use single-dimension capacity (pallets only)
+              return [pocPalletCap];
+            })()
           }
-        : {})
+        : (hasPickup
+            ? {
+                capacity: (() => {
+                  const cap = deriveVehicleCapacity(route.equipmentType);
+                  const weight10 = Math.max(0, Math.round((cap.weight || 0) * 10));
+                  const pallets = Math.max(0, Math.round(cap.pallets || 0));
+                  return [weight10, pallets];
+                })(),
+              }
+            : {}))
     };
 
     // 1) In-sequence run (sequence_order)
@@ -361,8 +427,17 @@ function convertToEpoch(time, dateTimeStr) {
 function parseNumberSafe(val) {
   if (val == null) return 0;
   if (typeof val === 'number' && Number.isFinite(val)) return val;
-  const n = Number(String(val).replace(/,/g, '').trim());
-  return Number.isFinite(n) ? n : 0;
+  const s = String(val).trim();
+  // Try plain numeric after removing commas
+  let n = Number(s.replace(/,/g, ''));
+  if (Number.isFinite(n)) return n;
+  // Fallback: extract first numeric token in mixed strings like "6 pallets" or "1.5 tons"
+  const match = s.match(/-?\d+(?:\.\d+)?/);
+  if (match) {
+    n = Number(match[0]);
+    if (Number.isFinite(n)) return n;
+  }
+  return 0;
 }
 
 // ---------------- Concurrency helpers & optimizer -----------------
@@ -398,6 +473,8 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
 
   const routeTasks = routes.map((route) => (async () => {
     // Build locations/jobs as in optimizeRoutes
+    // Ensure POC routes have a concrete routeStartTime/EndTime based on Day letter
+    ensurePocRouteDates(route, fileName);
     const locations = [];
     const indexByKey = new Map();
     const addLocation = (key, latlng) => {
@@ -407,13 +484,20 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
       }
       return indexByKey.get(key);
     };
-    const depotIndex = addLocation('depot', depotLocation);
+    // Per-route depot override for POC TIFF
+    const isPocFile = /^POC_/i.test(String(fileName || ''));
+    const routeLocCode = String(route?.location || '').trim().toUpperCase();
+    const pocDepot = (isPocFile && routeLocCode === 'TIFF')
+      ? '41.11198095581076,-83.21802034662716'
+      : depotLocation;
+    const depotIndex = addLocation('depot', pocDepot);
 
     const baseJobs = [];
     const baseJobsNoSeq = [];
     const shipmentsNoSeq = [];
+    const isPoc = /^POC_/i.test(String(fileName || ''));
     const hasPickup = Array.isArray(route.deliveries) && route.deliveries.some((d) => !!d?.isDepotResupply);
-    const shiftStartEpoch = new Date(route.routeStartTime).getTime() / 1000;
+    const shiftStartEpoch = convertToEpoch('00:00', route.routeStartTime);
     const shiftEndSeqEpoch = shiftStartEpoch + 12 * 3600;
     const shiftEndNoSeqEpoch = shiftStartEpoch + 20 * 3600;
     for (const delivery of route.deliveries) {
@@ -433,19 +517,28 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
         delivery.arrival,
         delivery.depart
       );
+      // Derive dimension values once per stop
+      const palletsNumAll = parseNumberSafe(delivery.cube || delivery.pallets);
+      const weightNumAll = parseNumberSafe(delivery.weight);
+      const adjPalletsAll = Math.max(0, Math.ceil(palletsNumAll));
+      const adjWeight10All = Math.max(0, Math.round(weightNumAll * 10));
+      const pocJobId = (() => {
+        const cust = String(delivery?.customerNumber || '').trim();
+        const shipTo = String(delivery?.shipToNumber || '').trim();
+        const stop = String(delivery?.stopNumber || '').trim();
+        if (isPoc && cust && shipTo && stop) return `${cust}-${shipTo}-${stop}`;
+        return null;
+      })();
       const common = {
-        id: `${delivery.stopNumber}-${route.routeId}`,
+        id: pocJobId || `${delivery.stopNumber}-${route.routeId}`,
         description: `${delivery.stopNumber}|${delivery.locationName}|${delivery.address}|${delivery.arrival}-${delivery.depart}`,
-        service: convertToSecondsSafe(delivery.service),
+        service: 1200,
         location_index: locIdx,
         time_windows: [[twStart, twEnd]],
+        ...(isPoc && !delivery.isDepotResupply ? { delivery: [adjPalletsAll] } : {}),
       };
       baseJobs.push(common);
       if (hasPickup) {
-        const palletsNum = parseNumberSafe(delivery.cube || delivery.pallets);
-        const weightNum = parseNumberSafe(delivery.weight);
-        const adjPallets = Math.max(0, Math.ceil(palletsNum));
-        const adjWeight10 = Math.max(0, Math.round(weightNum * 10));
         if (!delivery.isDepotResupply) {
           const locationIdRaw = String(delivery.locationId || `${delivery.stopNumber}-${route.routeId}`);
           shipmentsNoSeq.push({
@@ -459,28 +552,46 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
             delivery: {
               id: `${locationIdRaw}D`,
               location_index: locIdx,
-              service: convertToSecondsSafe(delivery.service),
+              service: 1200,
               time_windows: [[twStart, twEnd]]
             },
-            amount: [adjWeight10, adjPallets]
+            amount: (isPocVehicle ? [adjPalletsAll] : [adjWeight10All, adjPalletsAll])
           });
         }
       } else {
         const selectorRaw = String(delivery?.Selector ?? delivery?.selector ?? '').trim().toUpperCase();
         const sequence_order = selectorRaw === 'B' ? 1 : 99;
-        baseJobsNoSeq.push({ ...common, sequence_order });
+        const jobNoSeq = isPoc && !delivery.isDepotResupply
+          ? { ...common, sequence_order, delivery: [adjPalletsAll] }
+          : { ...common, sequence_order };
+        baseJobsNoSeq.push(jobNoSeq);
       }
     }
 
     // shiftStartEpoch/shiftEndSeqEpoch already computed above
 
+    const isPocVehicle = /^POC_/i.test(String(fileName || ''));
+    const totalPalletsAll = (route.deliveries || []).reduce((sum, d) => {
+      if (d?.isBreak) return sum;
+      const pal = parseNumberSafe(d?.cube || d?.pallets);
+      return sum + (Number.isFinite(pal) ? pal : 0);
+    }, 0);
+    const pocPalletCap = totalPalletsAll > 14 ? 26 : 14;
+    const pocTypeLabel = totalPalletsAll > 14 ? 'SEMI' : 'STRAIGHT';
+    const baseDescription = `${route.routeId}-${route.driverName}-${route.deliveries.length}`;
     const vehicle = {
       id: route.routeId,
-      description: `${route.routeId}-${route.driverName}-${route.deliveries.length}`,
+      description: isPocVehicle ? `${baseDescription} ${pocTypeLabel}` : baseDescription,
       time_window: [shiftStartEpoch, shiftEndSeqEpoch],
       start_index: depotIndex,
       end_index: depotIndex,
-      layover_config: { max_continuous_time: 18000, layover_duration: 1800, include_service_time: true }
+      layover_config: { max_continuous_time: 18000, layover_duration: 1800, include_service_time: true },
+      ...(isPocVehicle ? {
+        capacity: (() => {
+          // Single-dimension capacity for POC runs (pallets only)
+          return [pocPalletCap];
+        })()
+      } : {})
     };
 
     const vehicleSeq = {
@@ -490,16 +601,22 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
     const vehicleNoSeq = {
       ...vehicle,
       time_window: [shiftStartEpoch, shiftEndSeqEpoch],
-      ...(hasPickup
+      ...(isPocVehicle
         ? {
             capacity: (() => {
-              const cap = deriveVehicleCapacity(route.equipmentType);
-              const weight10 = Math.max(0, Math.round((cap.weight || 0) * 10));
-              const pallets = Math.max(0, Math.round(cap.pallets || 0));
-              return [weight10, pallets];
-            })(),
+              return [pocPalletCap];
+            })()
           }
-        : {})
+        : (hasPickup
+            ? {
+                capacity: (() => {
+                  const cap = deriveVehicleCapacity(route.equipmentType);
+                  const weight10 = Math.max(0, Math.round((cap.weight || 0) * 10));
+                  const pallets = Math.max(0, Math.round(cap.pallets || 0));
+                  return [weight10, pallets];
+                })(),
+              }
+            : {}))
     };
 
     let seq = 1;

@@ -521,7 +521,7 @@ function parsePocXLS(buffer) {
       const baseDateByDay = { M: '10/06/2025', T: '10/07/2025', W: '10/08/2025', R: '10/09/2025', F: '10/10/2025' };
       const dateStr = baseDateByDay[dow];
       if (dateStr) {
-        route.routeStartTime = `${dateStr} 04:00 EDT`;
+        route.routeStartTime = `${dateStr} 02:00 EDT`;
         route.routeEndTime = `${dateStr} 23:59 EDT`;
       }
     }
