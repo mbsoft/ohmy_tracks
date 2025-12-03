@@ -20,7 +20,7 @@ async function geocodeAddress(address, apiKey = '', verbose = false, proximityHi
   }
 
   try {
-    const url = 'https://sgpstg.nextbillion.io/h/discover';
+    const url = 'https://api.nextbillion.io/h/discover';
     const params = {
       q: address,
       key: apiKey
@@ -79,7 +79,19 @@ async function geocodeAddress(address, apiKey = '', verbose = false, proximityHi
       };
     }
   } catch (error) {
-    console.error(`Geocoding error for address "${address}":`, error.message);
+    try {
+      // Log the full request URL we attempted, to aid debugging 404s
+      const url = 'https://api.nextbillion.io/h/discover';
+      // Reconstruct minimal params similar to above for logging context
+      const loggingParams = new URLSearchParams({
+        q: address,
+        key: apiKey || '',
+      }).toString();
+      console.error(`❌ Geocoding error. Request: ${url}?${loggingParams} -> ${error?.response?.status || ''} ${error?.message}`);
+    } catch (e) {
+      // Fallback logging
+      console.error(`Geocoding error for address "${address}":`, error.message);
+    }
     return {
       success: false,
       error: error.message,
@@ -163,6 +175,9 @@ function findNearestGeocodedLocation(deliveries, currentIndex) {
  */
 async function geocodeRoutes(parsedData, apiKey = '') {
   console.log(`Starting geocoding for ${parsedData.totalDeliveries} deliveries...`);
+  // Allow verbose request logging via env flag
+  const verboseEnv = String(process.env.GEOCODE_VERBOSE || '').toLowerCase();
+  const VERBOSE_REQUESTS = verboseEnv === '1' || verboseEnv === 'true';
   
   let geocodedCount = 0;
   let failedCount = 0;
@@ -201,7 +216,7 @@ async function geocodeRoutes(parsedData, apiKey = '') {
       // If not in cache, geocode using address
       if (!geocodeResult) {
         cacheMisses++;
-        geocodeResult = await geocodeAddress(address, apiKey, false, null, false); // isLocationNameSearch = false
+        geocodeResult = await geocodeAddress(address, apiKey, VERBOSE_REQUESTS, null, false); // isLocationNameSearch = false
         
         // Add metadata about what was used for geocoding
         if (geocodeResult) {
@@ -291,7 +306,7 @@ async function geocodeRoutes(parsedData, apiKey = '') {
         geocodeResult = await geocodeAddress(
           locationName, 
           apiKey, 
-          false, 
+          VERBOSE_REQUESTS, 
           proximityHint ? { lat: proximityHint.lat, lng: proximityHint.lng, radius: 5000 } : null,
           true // isLocationNameSearch = true
         );

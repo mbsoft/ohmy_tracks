@@ -7,7 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const XLSX = require('xlsx');
 const jwt = require('jsonwebtoken');
-const { parseOmnitracXLS } = require('./parser');
+const { parseOmnitracXLS, parsePocXLS } = require('./parser');
 const { geocodeRoutes } = require('./geocoding');
 const { optimizeRoutes, optimizeAllRoutes, optimizeCustom } = require('./routeOptimizer');
 const uploads = require('./uploads');
@@ -266,7 +266,8 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
     console.log('Processing file:', req.file.originalname);
 
     // Parse the XLS file
-    const parsedData = parseOmnitracXLS(req.file.buffer);
+    const isPoc = /^POC_/i.test(path.basename(req.file.originalname || ''));
+    const parsedData = isPoc ? parsePocXLS(req.file.buffer) : parseOmnitracXLS(req.file.buffer);
     console.log(`Successfully parsed ${parsedData.routes.length} routes`);
 
     // Initialize status tracking

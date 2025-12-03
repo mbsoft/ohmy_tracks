@@ -94,8 +94,17 @@ function serviceToSeconds(val) {
 
 function depotFromFileName(fileName) {
   if (!fileName) return '';
-  if (fileName.startsWith('ATL')) return formatLatLngString('33.807970,-84.436960');
-  if (fileName.startsWith('NB Mays')) return formatLatLngString('39.442140,-74.703320');
+  const base = String(fileName).split('/').pop();
+  if (base.startsWith('ATL')) return formatLatLngString('33.807970,-84.436960');
+  if (base.startsWith('NB Mays')) return formatLatLngString('39.442140,-74.703320');
+  if (base.startsWith('POC_')) {
+    const nameNoExt = base.replace(/\.[^.]+$/, '');
+    const parts = nameNoExt.split('_');
+    const token = (parts[1] || '').trim().toLowerCase();
+    if (token === 'tiffin') {
+      return formatLatLngString('41.11225919719799,-83.21798883794955');
+    }
+  }
   return '';
 }
 
@@ -130,10 +139,9 @@ function fmtSecondsOrDash(seconds) {
   return typeof seconds === 'number' && seconds > 0 ? formatSecondsToHM(seconds) : '-';
 }
 
-function extractNbTimesAndOrder(nbResult) {
-  // Support both shapes: either the NB result is wrapped under `result`,
-  // or it is the NB object itself with top-level `routes`.
-  const root = nbResult?.result || nbResult;
+function extractNbTimesAndOrder(nbNonSeqResult) {
+  // Expect the non-sequenced NB object with top-level `routes`.
+  const root = nbNonSeqResult;
   const steps = root?.routes?.[0]?.steps || [];
   const timesByJobId = {};
   const orderByJobId = {};
@@ -193,12 +201,39 @@ function extractLayoverTimes(steps) {
   return { arrival, departure };
 }
 
+function extractLayoverSteps(steps) {
+  if (!Array.isArray(steps)) return [];
+  return steps
+    .filter((s) => {
+      const t = (s.type || s.activity || '').toString().toLowerCase();
+      const desc = (s.description || s.name || '').toString().toLowerCase();
+      return t.includes('layover') || desc.includes('layover');
+    })
+    .map((s) => {
+      const arrival = s.arrival ?? s.start_time ?? s.time ?? s.start;
+      const departure =
+        s.departure ??
+        s.end_time ??
+        (arrival != null ? arrival + (s.service || 0) + (s.setup || 0) + (s.waiting_time || 0) : undefined);
+      return { arrival, departure };
+    });
+}
+
 // Resolve the NextBillion step id for a delivery, trying multiple keys and fuzzy matches
 function resolveNbIdForDelivery(timesByJobId, delivery, routeId) {
   const legacyJobId = `${delivery.stopNumber}-${routeId}`;
   const shipmentDeliveryId = delivery.locationId ? `${delivery.locationId}D` : null;
   const legacyShipmentDeliveryId = `${legacyJobId}D`;
+  // POC job id format: CustomerNumber-ShipToNumber-Stop
+  const pocJobId = (() => {
+    const cust = String(delivery?.customerNumber || '').trim();
+    const shipTo = String(delivery?.shipToNumber || '').trim();
+    const stop = String(delivery?.stopNumber || '').trim();
+    if (cust && shipTo && stop) return `${cust}-${shipTo}-${stop}`;
+    return null;
+  })();
   // Preferred explicit ids
+  if (pocJobId && timesByJobId[pocJobId]) return pocJobId;
   if (shipmentDeliveryId && timesByJobId[shipmentDeliveryId]) return shipmentDeliveryId;
   if (timesByJobId[legacyShipmentDeliveryId]) return legacyShipmentDeliveryId;
   if (timesByJobId[legacyJobId]) return legacyJobId;
@@ -353,9 +388,11 @@ function App() {
       }
 
       const nbResult = await response.json();
-      // Support both shapes: { result: {...} } and direct NB result object
-      const { timesByJobId, orderByJobId, steps } = extractNbTimesAndOrder(nbResult.result || nbResult);
+      // Extract non-sequenced for NB_* fields and sequenced for ARRIVAL/DEPART
+      const { timesByJobId, orderByJobId, steps } = extractNbTimesAndOrder(nbResult.result);
+      const { timesByJobId: seqTimesByJobId } = extractNbTimesAndOrder(nbResult.resultInSeq?.result || null);
       const layoverTimes = extractLayoverTimes(steps);
+      const layoverSteps = extractLayoverSteps(steps);
 
       setData((oldData) => {
         const updatedRoutes = oldData.routes.map((route) => {
@@ -363,6 +400,7 @@ function App() {
           const updatedDeliveries = route.deliveries.map((delivery) => {
             const chosenId = resolveNbIdForDelivery(timesByJobId, delivery, route.routeId);
             const jobTimes = timesByJobId[chosenId];
+            const seqTimes = seqTimesByJobId ? seqTimesByJobId[chosenId] : null;
             const order = orderByJobId[chosenId];
             let NB_ARRIVAL = jobTimes?.arrival != null ? formatEpochToHHMM(jobTimes.arrival) : delivery.NB_ARRIVAL;
             let NB_DEPART = jobTimes?.departure != null ? formatEpochToHHMM(jobTimes.departure) : delivery.NB_DEPART;
@@ -372,9 +410,87 @@ function App() {
             }
             // Do not count break stop as a NextBillion stop number
             const NB_ORDER = delivery.isBreak ? undefined : order;
-            return { ...delivery, NB_ARRIVAL, NB_DEPART, NB_ORDER };
+            // ARRIVAL/DEPART must come from sequenced result
+            const ARRIVAL = seqTimes?.arrival != null ? formatEpochToHHMM(seqTimes.arrival) : (delivery.arrival || '');
+            const DEPART = seqTimes?.departure != null ? formatEpochToHHMM(seqTimes.departure) : (delivery.depart || '');
+            return { ...delivery, NB_ARRIVAL, NB_DEPART, NB_ORDER, arrival: ARRIVAL, depart: DEPART };
           });
-          return { ...route, deliveries: updatedDeliveries, summary: nbResult };
+          // Insert Start/End and Layover rows (POC_: also insert Break if missing)
+          const isPoc = String(oldData?.fileName || '').startsWith('POC_');
+          let withSynth = updatedDeliveries;
+          if (isPoc) {
+            const startStep = (steps || []).find((s) => String(s.type || s.activity || '').toLowerCase() === 'start');
+            const endStep = (steps || []).slice().reverse().find((s) => String(s.type || s.activity || '').toLowerCase() === 'end');
+            const breakStep = (steps || []).find((s) => {
+              const t = String(s.type || s.activity || '').toLowerCase();
+              const d = String(s.description || s.name || '').toLowerCase();
+              return t.includes('break') || d.includes('break');
+            });
+            const startObj = startStep
+              ? {
+                  isStart: true,
+                  stopNumber: '',
+                  locationName: 'Start',
+                  arrival: startStep.arrival ? formatEpochToHHMM(startStep.arrival) : '',
+                  depart: startStep.departure ? formatEpochToHHMM(startStep.departure) : '',
+                  NB_ARRIVAL: startStep.arrival ? formatEpochToHHMM(startStep.arrival) : '',
+                  NB_DEPART: startStep.departure ? formatEpochToHHMM(startStep.departure) : '',
+                }
+              : null;
+            const endObj = endStep
+              ? {
+                  isEnd: true,
+                  stopNumber: '',
+                  locationName: 'End',
+                  arrival: endStep.arrival ? formatEpochToHHMM(endStep.arrival) : '',
+                  depart: endStep.departure ? formatEpochToHHMM(endStep.departure) : '',
+                  NB_ARRIVAL: endStep.arrival ? formatEpochToHHMM(endStep.arrival) : '',
+                  NB_DEPART: endStep.departure ? formatEpochToHHMM(endStep.departure) : '',
+                }
+              : null;
+            const hasBreakRow = withSynth.some((d) => d.isBreak);
+            const breakObj =
+              !hasBreakRow && breakStep
+                ? {
+                    isBreak: true,
+                    stopNumber: '',
+                    locationName: 'Break',
+                    arrival: breakStep.arrival ? formatEpochToHHMM(breakStep.arrival) : '',
+                    depart: breakStep.departure ? formatEpochToHHMM(breakStep.departure) : '',
+                    NB_ARRIVAL: breakStep.arrival ? formatEpochToHHMM(breakStep.arrival) : '',
+                    NB_DEPART: breakStep.departure ? formatEpochToHHMM(breakStep.departure) : '',
+                  }
+                : null;
+            const layoverObjs = layoverSteps.map((l) => ({
+              isLayover: true,
+              stopNumber: '',
+              locationName: 'Layover',
+              arrival: l.arrival != null ? formatEpochToHHMM(l.arrival) : '',
+              depart: l.departure != null ? formatEpochToHHMM(l.departure) : '',
+              NB_ARRIVAL: l.arrival != null ? formatEpochToHHMM(l.arrival) : '',
+              NB_DEPART: l.departure != null ? formatEpochToHHMM(l.departure) : ''
+            }));
+            withSynth = [
+              ...(startObj ? [startObj] : []),
+              ...withSynth,
+              ...layoverObjs,
+              ...(breakObj ? [breakObj] : []),
+              ...(endObj ? [endObj] : []),
+            ];
+          } else {
+            // Non-POC: still insert layover rows if present
+            const layoverObjs = layoverSteps.map((l) => ({
+              isLayover: true,
+              stopNumber: '',
+              locationName: 'Layover',
+              arrival: l.arrival != null ? formatEpochToHHMM(l.arrival) : '',
+              depart: l.departure != null ? formatEpochToHHMM(l.departure) : '',
+              NB_ARRIVAL: l.arrival != null ? formatEpochToHHMM(l.arrival) : '',
+              NB_DEPART: l.departure != null ? formatEpochToHHMM(l.departure) : ''
+            }));
+            withSynth = [...withSynth, ...layoverObjs];
+          }
+          return { ...route, deliveries: withSynth, summary: nbResult };
         });
         return { ...oldData, routes: updatedRoutes };
       });
@@ -543,11 +659,13 @@ function App() {
     }
   };
 
-  const handleOptimizeAll = async () => {
-    if (!data?.routes || data.routes.length === 0) return;
+  const handleOptimizeAll = async (selectedRoutesArg) => {
+    const allRoutes = data?.routes || [];
+    const routesToOptimize = Array.isArray(selectedRoutesArg) && selectedRoutesArg.length > 0 ? selectedRoutesArg : allRoutes;
+    if (routesToOptimize.length === 0) return;
     try {
       const payload = {
-        routeData: { routes: data.routes },
+        routeData: { routes: routesToOptimize },
         fileName: data.fileName,
       };
       const response = await fetch('/api/optimize-all', {
@@ -589,12 +707,15 @@ function App() {
             (numeric && byId.get(numeric)) ||
             (numericDash && byId.get(numericDash));
           if (!nbRoute) return route;
-          // nbRoute.result is the full NB poll response; maintain compatibility with single-route path
-          const { timesByJobId, orderByJobId, steps } = extractNbTimesAndOrder(nbRoute.result || nbRoute);
+          // Non-sequenced for NB_*; sequenced for ARRIVAL/DEPART
+          const { timesByJobId, orderByJobId, steps } = extractNbTimesAndOrder(nbRoute.result);
+          const { timesByJobId: seqTimesByJobId } = extractNbTimesAndOrder(nbRoute.resultInSeq?.result || null);
           const layoverTimes = extractLayoverTimes(steps);
+          const layoverSteps = extractLayoverSteps(steps);
           const updatedDeliveries = route.deliveries.map((delivery) => {
             const chosenId = resolveNbIdForDelivery(timesByJobId, delivery, route.routeId);
             const jobTimes = timesByJobId[chosenId];
+            const seqTimes = seqTimesByJobId ? seqTimesByJobId[chosenId] : null;
             const order = orderByJobId[chosenId];
             let NB_ARRIVAL = jobTimes?.arrival != null ? formatEpochToHHMM(jobTimes.arrival) : delivery.NB_ARRIVAL;
             let NB_DEPART = jobTimes?.departure != null ? formatEpochToHHMM(jobTimes.departure) : delivery.NB_DEPART;
@@ -604,9 +725,86 @@ function App() {
             }
             // Do not count break stop as a NextBillion stop number
             const NB_ORDER = delivery.isBreak ? undefined : order;
-            return { ...delivery, NB_ARRIVAL, NB_DEPART, NB_ORDER };
+            // ARRIVAL/DEPART must come from sequenced result
+            const ARRIVAL = seqTimes?.arrival != null ? formatEpochToHHMM(seqTimes.arrival) : (delivery.arrival || '');
+            const DEPART = seqTimes?.departure != null ? formatEpochToHHMM(seqTimes.departure) : (delivery.depart || '');
+            return { ...delivery, NB_ARRIVAL, NB_DEPART, NB_ORDER, arrival: ARRIVAL, depart: DEPART };
           });
-          return { ...route, deliveries: updatedDeliveries, summary: nbRoute };
+          // Insert Start/End and Layover rows; for POC_: also insert Break if missing
+          const isPoc = String(oldData?.fileName || '').startsWith('POC_');
+          let withSynth = updatedDeliveries;
+          if (isPoc) {
+            const startStep = (steps || []).find((s) => String(s.type || s.activity || '').toLowerCase() === 'start');
+            const endStep = (steps || []).slice().reverse().find((s) => String(s.type || s.activity || '').toLowerCase() === 'end');
+            const breakStep = (steps || []).find((s) => {
+              const t = String(s.type || s.activity || '').toLowerCase();
+              const d = String(s.description || s.name || '').toLowerCase();
+              return t.includes('break') || d.includes('break');
+            });
+            const startObj = startStep
+              ? {
+                  isStart: true,
+                  stopNumber: '',
+                  locationName: 'Start',
+                  arrival: startStep.arrival ? formatEpochToHHMM(startStep.arrival) : '',
+                  depart: startStep.departure ? formatEpochToHHMM(startStep.departure) : '',
+                  NB_ARRIVAL: startStep.arrival ? formatEpochToHHMM(startStep.arrival) : '',
+                  NB_DEPART: startStep.departure ? formatEpochToHHMM(startStep.departure) : '',
+                }
+              : null;
+            const endObj = endStep
+              ? {
+                  isEnd: true,
+                  stopNumber: '',
+                  locationName: 'End',
+                  arrival: endStep.arrival ? formatEpochToHHMM(endStep.arrival) : '',
+                  depart: endStep.departure ? formatEpochToHHMM(endStep.departure) : '',
+                  NB_ARRIVAL: endStep.arrival ? formatEpochToHHMM(endStep.arrival) : '',
+                  NB_DEPART: endStep.departure ? formatEpochToHHMM(endStep.departure) : '',
+                }
+              : null;
+            const hasBreakRow = withSynth.some((d) => d.isBreak);
+            const breakObj =
+              !hasBreakRow && breakStep
+                ? {
+                    isBreak: true,
+                    stopNumber: '',
+                    locationName: 'Break',
+                    arrival: breakStep.arrival ? formatEpochToHHMM(breakStep.arrival) : '',
+                    depart: breakStep.departure ? formatEpochToHHMM(breakStep.departure) : '',
+                    NB_ARRIVAL: breakStep.arrival ? formatEpochToHHMM(breakStep.arrival) : '',
+                    NB_DEPART: breakStep.departure ? formatEpochToHHMM(breakStep.departure) : '',
+                  }
+                : null;
+            const layoverObjs = layoverSteps.map((l) => ({
+              isLayover: true,
+              stopNumber: '',
+              locationName: 'Layover',
+              arrival: l.arrival != null ? formatEpochToHHMM(l.arrival) : '',
+              depart: l.departure != null ? formatEpochToHHMM(l.departure) : '',
+              NB_ARRIVAL: l.arrival != null ? formatEpochToHHMM(l.arrival) : '',
+              NB_DEPART: l.departure != null ? formatEpochToHHMM(l.departure) : ''
+            }));
+            withSynth = [
+              ...(startObj ? [startObj] : []),
+              ...withSynth,
+              ...layoverObjs,
+              ...(breakObj ? [breakObj] : []),
+              ...(endObj ? [endObj] : []),
+            ];
+          } else {
+            const layoverObjs = layoverSteps.map((l) => ({
+              isLayover: true,
+              stopNumber: '',
+              locationName: 'Layover',
+              arrival: l.arrival != null ? formatEpochToHHMM(l.arrival) : '',
+              depart: l.departure != null ? formatEpochToHHMM(l.departure) : '',
+              NB_ARRIVAL: l.arrival != null ? formatEpochToHHMM(l.arrival) : '',
+              NB_DEPART: l.departure != null ? formatEpochToHHMM(l.departure) : ''
+            }));
+            withSynth = [...withSynth, ...layoverObjs];
+          }
+          return { ...route, deliveries: withSynth, summary: nbRoute };
         });
         return { ...oldData, routes: updatedRoutes };
       });
