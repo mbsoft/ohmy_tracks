@@ -1230,8 +1230,9 @@ function App() {
                       });
                     });
 
-                    // Jobs from selectedDeliveryKeys
+                    // Jobs and Shipments from selectedDeliveryKeys
                     const jobs = [];
+                    const shipments = [];
                     routes.forEach((route, rIndex) => {
                       (route.deliveries || []).forEach((d, dIndex) => {
                         const key = `${route.routeId ?? rIndex}::${dIndex}`;
@@ -1248,6 +1249,31 @@ function App() {
                         const serviceSeconds = serviceToSeconds(d.service);
                         const selectorRaw = String(d?.Selector ?? d?.selector ?? '').trim().toUpperCase();
                         const sequence_order = selectorRaw === 'B' ? 1 : 99;
+                        // Special rule: treat specific location as a shipment, not a job
+                        if (String(d.locationId || '') === '2004704998') {
+                          // Ensure depot/start is at index 0 if not yet added
+                          const startLoc = depot || computeStartLocation(route);
+                          const startIdx = getIndexForCoord(startLoc);
+                          // Build shipment with provided constants
+                          shipments.push({
+                            id: `${d.locationId}-S`,
+                            pickup: {
+                              id: '2004704998P',
+                              location_index: startIdx, // 0 in our locations list
+                              service: 0,
+                              time_windows: [[1760599800, 1760643000]]
+                            },
+                            delivery: {
+                              id: '2004704998D',
+                              location_index: locIdx, // index for this stop
+                              service: 9540,
+                              time_windows: [[1760608800, 1760644800]]
+                            },
+                            amount: [393800, 24]
+                          });
+                          return;
+                        }
+                        // Default path: create a job
                         const baseJob = {
                           id: `${d.locationId || ''}-${route.routeId || rIndex}-${dIndex}`,
                           location_index: locIdx,
@@ -1267,6 +1293,7 @@ function App() {
                       locations: { location: locations },
                       vehicles,
                       jobs,
+                      ...(shipments.length > 0 ? { shipments } : {}),
                       options: { 
                         routing: { mode: 'truck', traffic_timestamp: 1763629200 }, 
                         objective: { travel_cost: 'duration' }
