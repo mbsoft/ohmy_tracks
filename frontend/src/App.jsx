@@ -1213,7 +1213,7 @@ function App() {
                       })();
                       const startIdx = getIndexForCoord(startLoc);
                       const startEpoch = parseEpochFromStart(route.routeStartTime || '');
-                      const endEpoch = startEpoch + 11 * 3600;
+                      const endEpoch = startEpoch + 9 * 3600;
                       const cap = deriveVehicleCapacity(route.equipmentType || '');
                       vehicles.push({
                         id: routeId,

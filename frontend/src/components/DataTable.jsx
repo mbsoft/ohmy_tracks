@@ -40,18 +40,8 @@ function formatLatLngString(value) {
 
 function depotFromFileName(fileName) {
   if (!fileName) return '';
-  const base = String(fileName).split('/').pop();
-  if (base.startsWith('ATL')) return formatLatLngString('33.807970,-84.436960');
-  if (base.startsWith('NB Mays')) return formatLatLngString('39.442140,-74.703320');
-  if (base.startsWith('POC_')) {
-    const nameNoExt = base.replace(/\.[^.]+$/, '');
-    const parts = nameNoExt.split('_');
-    const token = (parts[1] || '').trim().toLowerCase();
-    // Map known POC tokens to coordinates
-    if (token === 'tiffin') {
-      return formatLatLngString('41.11225919719799,-83.21798883794955');
-    }
-  }
+  if (fileName.startsWith('ATL')) return formatLatLngString('33.807970,-84.436960');
+  if (fileName.startsWith('NB Mays')) return formatLatLngString('39.442140,-74.703320');
   return '';
 }
 
@@ -128,16 +118,12 @@ function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingR
   const optimizeAll = async () => {
     try {
       setOptimizingAll(true);
-      const selectedRoutes = routes.filter((route, idx) =>
-        selectedRouteIds.has(String(route.routeId ?? idx))
-      );
       if (typeof handleOptimizeAll === 'function') {
-        // Pass selected routes to parent handler (ignored if handler doesn't accept args)
-        await handleOptimizeAll(selectedRoutes);
+        await handleOptimizeAll();
       } else {
         // Fallback: run concurrent on client (may exceed server-side limits)
         await Promise.all(
-          selectedRoutes.map((r, i) => {
+          routes.map((r, i) => {
             const startLocation = getStartLocation(i);
             return handleOptimizeRoute(r.routeId, startLocation);
           })
@@ -152,52 +138,24 @@ function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingR
     <div className="bg-white rounded-lg shadow overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-gray-900">Routes & Deliveries</h2>
-        <div className="flex items-center space-x-3">
-          <button
-            className="inline-flex items-center bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold text-sm py-2 px-4 rounded"
-            onClick={() => {
-              const allSelected = routes.every((route, idx) =>
-                selectedRouteIds.has(String(route.routeId ?? idx))
-              );
-              if (allSelected) {
-                // Deselect all
-                routes.forEach((route, idx) => {
-                  const id = String(route.routeId ?? idx);
-                  if (selectedRouteIds.has(id)) toggleRouteSelection(id);
-                });
-              } else {
-                // Select all
-                routes.forEach((route, idx) => {
-                  const id = String(route.routeId ?? idx);
-                  if (!selectedRouteIds.has(id)) toggleRouteSelection(id);
-                });
-              }
-            }}
-            title="Select or deselect all routes"
-          >
-            {routes.length > 0 && routes.every((route, idx) => selectedRouteIds.has(String(route.routeId ?? idx)))
-              ? 'Deselect All'
-              : 'Select All'}
-          </button>
-          <button
-            className="inline-flex items-center bg-[#8F59A0] hover:bg-[#7a3f87] text-white font-semibold text-sm py-2 px-4 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={optimizeAll}
-            disabled={optimizingAll}
-            title="Run optimization for all routes"
-          >
-            {optimizingAll ? (
-              <>
-                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                {`Optimizing Selected (${routes.filter((route, idx) => selectedRouteIds.has(String(route.routeId ?? idx))).length})...`}
-              </>
-            ) : (
-              `Optimize Selected (${routes.filter((route, idx) => selectedRouteIds.has(String(route.routeId ?? idx))).length})`
-            )}
-          </button>
-        </div>
+        <button
+          className="inline-flex items-center bg-[#8F59A0] hover:bg-[#7a3f87] text-white font-semibold text-sm py-2 px-4 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={optimizeAll}
+          disabled={optimizingAll}
+          title="Run optimization for all routes"
+        >
+          {optimizingAll ? (
+            <>
+              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Optimizing All...
+            </>
+          ) : (
+            'Optimize All'
+          )}
+        </button>
       </div>
 
       <div className="overflow-x-auto">
@@ -351,16 +309,8 @@ function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingR
                       {routes[routeIndex].deliveries.map((delivery, deliveryIndex) => (
                         <tr key={deliveryIndex} className="hover:bg-blue-100 transition-colors">
                           <td className="px-5 py-3 whitespace-nowrap text-blue-900">
-                            {delivery.isStart
-                              ? 'Start'
-                              : delivery.isEnd
-                              ? 'End'
-                              : delivery.isLayover
-                              ? 'Layover'
-                              : delivery.isDepotResupply
-                              ? 'Depot'
-                              : (delivery.stopNumber || '-')}
-                            {!delivery.isDepotResupply && !delivery.isBreak && !delivery.isLayover && !delivery.isStart && !delivery.isEnd && delivery.NB_ORDER ? `(${delivery.NB_ORDER})` : ''}
+                            {delivery.isDepotResupply ? 'Depot' : (delivery.stopNumber || '-')}
+                            {!delivery.isDepotResupply && !delivery.isBreak && delivery.NB_ORDER ? `(${delivery.NB_ORDER})` : ''}
                           </td>
                           <td className="px-5 py-3 whitespace-nowrap text-blue-900">{delivery.Selector || 'S'}</td>
                           <td className="px-5 py-3 whitespace-nowrap text-blue-900">{delivery.locationId || '-'}</td>
