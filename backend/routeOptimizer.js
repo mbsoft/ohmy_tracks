@@ -22,12 +22,19 @@ function determineDepotLocation(fileName) {
 }
 
 function deriveVehicleCapacity(equipmentTypeId) {
-  const s = String(equipmentTypeId || '').trim().toUpperCase();
+  const s = String(equipmentTypeId || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (s.startsWith('40LG')) return { weight: 29000, pallets: 22 };
   if (s.startsWith('32LG')) return { weight: 25000, pallets: 18 };
   if (s.startsWith('28LG')) return { weight: 20000, pallets: 18 };
   if (s.startsWith('48LG')) return { weight: 41000, pallets: 32 };
   if (s.startsWith('18BT')) return { weight: 12000, pallets: 12 };
+  if (s.startsWith('20BT')) return { weight: 14000, pallets: 14 };
+  if (s.startsWith('14BAY')) return { weight: 12000, pallets: 12 };
+  if (s.startsWith('10BAY')) return { weight: 10000, pallets: 10 };
+  if (s.startsWith('16BAY')) return { weight: 14000, pallets: 16 };
+  if (s.startsWith('4BAY')) return { weight: 4000, pallets: 4 };
+  if (s.startsWith('48FT')) return { weight: 41000, pallets: 32 };
+  if (s.startsWith('53FT')) return { weight: 45000, pallets: 34 };
   return { weight: 0, pallets: 0 };
 }
 
@@ -275,7 +282,7 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
       locations: { location: locations },
       vehicles: [vehicleSeq],
       jobs: jobsInSeq,
-      options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: false},objective: { travel_cost: 'duration' } },
+      options: { routing: { mode: 'truck', disable_cache: false},objective: { travel_cost: 'duration' } },
       description: `Optimization (in-sequence) for ${route.routeId}`
     };
     const { result: resultInSeq, requestId: requestIdInSeq } = await submitAndPoll(requestBodySeq, apiKey);
@@ -286,14 +293,14 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
           locations: { location: locations },
           vehicles: [vehicleNoSeq],
           shipments: shipmentsNoSeq,
-          options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: false},objective: { travel_cost: 'duration' } },
+          options: { routing: { mode: 'truck', disable_cache: false},objective: { travel_cost: 'duration' } },
           description: `Optimization (no sequence) for ${route.routeId}`
         }
       : {
           locations: { location: locations },
           vehicles: [vehicleNoSeq],
           jobs: baseJobsNoSeq,
-          options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: false},objective: { travel_cost: 'duration' } },
+          options: { routing: { mode: 'truck', disable_cache: false},objective: { travel_cost: 'duration' } },
           description: `Optimization (no sequence) for ${route.routeId}`
         };
     const { result: resultNoSeq, requestId: requestIdNoSeq } = await submitAndPoll(requestBodyNoSeq, apiKey);
@@ -516,7 +523,7 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
       locations: { location: locations },
       vehicles: [vehicleSeq],
       jobs: jobsInSeq,
-      options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: false}, objective: { travel_cost: 'duration' } },
+      options: { routing: { mode: 'truck', disable_cache: false}, objective: { travel_cost: 'duration' } },
       description: `Optimization (in-sequence) for ${route.routeId}`
     };
     const requestBodyNoSeq = hasPickup
@@ -524,14 +531,14 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
           locations: { location: locations },
           vehicles: [vehicleNoSeq],
           shipments: shipmentsNoSeq,
-          options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: false}, objective: { travel_cost: 'duration' } },
+          options: { routing: { mode: 'truck', disable_cache: false}, objective: { travel_cost: 'duration' } },
           description: `Optimization (no sequence) for ${route.routeId}`
         }
       : {
           locations: { location: locations },
           vehicles: [vehicleNoSeq],
           jobs: baseJobsNoSeq,
-          options: { routing: { mode: 'truck', traffic_timestamp: 1760648400, disable_cache: false}, objective: { travel_cost: 'duration' } },
+          options: { routing: { mode: 'truck', disable_cache: false}, objective: { travel_cost: 'duration' } },
           description: `Optimization (no sequence) for ${route.routeId}`
         };
 
