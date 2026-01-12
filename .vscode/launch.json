@@ -15,13 +15,15 @@
       "console": "integratedTerminal"
     },
     {
-        "type": "chrome",
-        "request": "launch",
-        "name": "Launch Chrome against localhost",
-        "url": "http://localhost:3000",  // Ensure this URL matches your dev server
-        "webRoot": "${workspaceFolder}/frontend/src",
-        "sourceMaps": true,
-        "preLaunchTask": "npm: start"  // This assumes you're using 'npm start' to launch your React app
-      }
+      "type": "pwa-chrome",
+      "request": "launch",
+      "name": "Launch Frontend (Vite dev server)",
+      // Starts both backend and Vite frontend using the root-level "dev" script.
+      "preLaunchTask": "npm: dev",
+      // Vite's default dev server port; update if you override it.
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/frontend/src",
+      "sourceMaps": true
+    }
   ]
 }

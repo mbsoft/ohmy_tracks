@@ -97,6 +97,7 @@ function depotFromFileName(fileName) {
   const base = String(fileName).split('/').pop();
   if (base.startsWith('ATL')) return formatLatLngString('33.807970,-84.436960');
   if (base.startsWith('NB Mays')) return formatLatLngString('39.442140,-74.703320');
+  if (base.startsWith('NB Mesquite,')) return formatLatLngString('32.761533,-96.591010');
   if (base.startsWith('POC_')) {
     const nameNoExt = base.replace(/\.[^.]+$/, '');
     const parts = nameNoExt.split('_');
@@ -224,7 +225,15 @@ function resolveNbIdForDelivery(timesByJobId, delivery, routeId) {
   const legacyJobId = `${delivery.stopNumber}-${routeId}`;
   const shipmentDeliveryId = delivery.locationId ? `${delivery.locationId}D` : null;
   const legacyShipmentDeliveryId = `${legacyJobId}D`;
-  // POC job id format: CustomerNumber-ShipToNumber-Stop
+  // POC job id formats
+  // 1) Composite of Stop-LocationName (used for POC_* files)
+  const pocCompositeJobId = (() => {
+    const stop = String(delivery?.stopNumber || '').trim();
+    const name = String(delivery?.locationName || '').trim();
+    if (stop && name) return `${stop}-${name}`;
+    return null;
+  })();
+  // 2) Legacy format: CustomerNumber-ShipToNumber-Stop
   const pocJobId = (() => {
     const cust = String(delivery?.customerNumber || '').trim();
     const shipTo = String(delivery?.shipToNumber || '').trim();
@@ -233,6 +242,14 @@ function resolveNbIdForDelivery(timesByJobId, delivery, routeId) {
     return null;
   })();
   // Preferred explicit ids
+  if (pocCompositeJobId && timesByJobId[pocCompositeJobId]) return pocCompositeJobId;
+  // Also handle sequenced POC ids of the form "<Stop-LocationName>-N"
+  if (pocCompositeJobId) {
+    const seqMatch = Object.keys(timesByJobId || {}).find(
+      (k) => typeof k === 'string' && k.startsWith(`${pocCompositeJobId}-`)
+    );
+    if (seqMatch) return seqMatch;
+  }
   if (pocJobId && timesByJobId[pocJobId]) return pocJobId;
   if (shipmentDeliveryId && timesByJobId[shipmentDeliveryId]) return shipmentDeliveryId;
   if (timesByJobId[legacyShipmentDeliveryId]) return legacyShipmentDeliveryId;
@@ -265,6 +282,19 @@ function App() {
   const [vehicleCapacities, setVehicleCapacities] = useState({});
   const [savedReports, setSavedReports] = useState([]);
   const [selectedRouteIds, setSelectedRouteIds] = useState(new Set());
+  const [debugMode, setDebugMode] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const params = new URLSearchParams(window.location.search || '');
+      const q = params.get('debug');
+      if (q === '1') return true;
+      if (q === '0') return false;
+      const stored = window.localStorage.getItem('ohmy_debug');
+      return stored === '1';
+    } catch {
+      return false;
+    }
+  });
 
   const toggleRouteSelection = (routeId) => {
     setSelectedRouteIds((prev) => {
@@ -275,6 +305,17 @@ function App() {
         next.add(routeId);
       }
       return next;
+    });
+  };
+
+  const toggleAllRoutes = () => {
+    setSelectedRouteIds((prev) => {
+      if (!data?.routes || data.routes.length === 0) {
+        return new Set();
+      }
+      const allRouteIds = data.routes.map((route, idx) => String(route.routeId ?? idx));
+      const allSelected = allRouteIds.every((id) => prev.has(id));
+      return allSelected ? new Set() : new Set(allRouteIds);
     });
   };
 
@@ -322,6 +363,15 @@ function App() {
     localStorage.removeItem('authToken');
     setToken(null);
   };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem('ohmy_debug', debugMode ? '1' : '0');
+    } catch {
+      // ignore storage errors in debug flag
+    }
+  }, [debugMode]);
 
   // Initialize selections to "all selected" when new data is loaded
   useEffect(() => {
@@ -547,14 +597,25 @@ function App() {
         const resp = await fetch(`/api/extract-lookup?file=${encodeURIComponent(file.name)}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
+        // eslint-disable-next-line no-console
+        console.log('[extract-lookup] file.name:', file.name, 'resp.ok:', resp.ok);
         if (resp.ok) {
-          const { map } = await resp.json();
+          const json = await resp.json();
+          const { map } = json;
+          // eslint-disable-next-line no-console
+          console.log('[extract-lookup] count:', json.count, 'from:', json.from, 'map keys:', Object.keys(map || {}).length);
+          if (debugMode) {
+            console.log('extract map size', Object.keys(map).length);
+            console.log('publix 1226 selector:', map['publix 1226']);
+          }
           if (map && Object.keys(map).length > 0) {
             setData((old) => {
               if (!old?.routes) return old;
               const updatedRoutes = (old.routes || []).map((route) => {
                 const updatedDeliveries = (route.deliveries || []).map((d) => {
-                  const norm = normalizeForKey(d.address || '');
+                  // Prefer matching on location name (which matches extract keys),
+                  // fall back to address if needed.
+                  const norm = normalizeForKey(d.locationName || d.address || '');
                   let Selector = d.Selector || 'S';
                   for (const [k, v] of Object.entries(map)) {
                     if (k && norm.includes(k)) {
@@ -606,14 +667,19 @@ function App() {
           const resp = await fetch(`/api/extract-lookup?file=${encodeURIComponent(fileName)}`, {
             headers: { 'Authorization': `Bearer ${token}` }
           });
+          // eslint-disable-next-line no-console
+          console.log('[extract-lookup] fileName:', fileName, 'resp.ok:', resp.ok);
           if (resp.ok) {
-            const { map } = await resp.json();
+            const json = await resp.json();
+            const { map } = json;
+            // eslint-disable-next-line no-console
+            console.log('[extract-lookup] count:', json.count, 'from:', json.from, 'map keys:', Object.keys(map || {}).length);
             if (map && Object.keys(map).length > 0) {
               setData((old) => {
                 if (!old?.routes) return old;
                 const updatedRoutes = (old.routes || []).map((route) => {
                   const updatedDeliveries = (route.deliveries || []).map((d) => {
-                    const norm = normalizeForKey(d.address || '');
+                    const norm = normalizeForKey(d.locationName || '');
                     let Selector = d.Selector || 'S';
                     for (const [k, v] of Object.entries(map)) {
                       if (k && norm.includes(k)) {
@@ -906,7 +972,16 @@ function App() {
         }
         // accumulate per-route stats
         acc.routes += 1;
-        acc.stops += route.deliveries?.length ?? 0;
+        // Selected Stops: count ONLY sequenced NB steps (job, delivery, pickup). Do not fallback to non-sequenced.
+        const seqRoot = route.summary?.resultInSeq?.result || route.summary?.resultInSeq;
+        const nbSteps = seqRoot?.routes?.[0]?.steps;
+        if (Array.isArray(nbSteps)) {
+          const counted = nbSteps.filter((step) => {
+            const t = String(step?.type || '').toLowerCase();
+            return t === 'job' || t === 'delivery' || t === 'pickup';
+          }).length;
+          acc.stops += counted;
+        }
         return acc;
       },
       { 
@@ -940,6 +1015,14 @@ function App() {
               </p>
             </div>
             <div className="flex items-center">
+              <button
+                type="button"
+                onClick={() => setDebugMode((prev) => !prev)}
+                className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 mr-3"
+                title="Toggle frontend debug logging (or use ?debug=1 in the URL)"
+              >
+                Debug: {debugMode ? 'On' : 'Off'}
+              </button>
               {isLocalhost && (
                 <button
                   onClick={handleClearCache}
@@ -1164,6 +1247,7 @@ function App() {
                   optimizingRouteIds={optimizingRouteIds}
                   selectedRouteIds={selectedRouteIds}
                   toggleRouteSelection={toggleRouteSelection}
+                  toggleAllRoutes={toggleAllRoutes}
                 />
               </div>
             )}
@@ -1190,6 +1274,8 @@ function App() {
                     setFullOptRunning(true);
                     const routes = data?.routes || [];
                     const depot = depotFromFileName(data?.fileName);
+                    const isPocFile = String(data?.fileName || '').startsWith('POC_');
+                      const maxContinuous = isPocFile ? 8 * 3600 : 18000;
                     const indexByCoord = new Map();
                     const locations = [];
                     const getIndexForCoord = (latlng) => {
@@ -1213,7 +1299,7 @@ function App() {
                       })();
                       const startIdx = getIndexForCoord(startLoc);
                       const startEpoch = parseEpochFromStart(route.routeStartTime || '');
-                      const endEpoch = startEpoch + 10 * 3600;
+                      const endEpoch = startEpoch + (isPocFile ? 24 * 3600 : 10 * 3600);
                       const cap = deriveVehicleCapacity(route.equipmentType || '');
                       vehicles.push({
                         id: routeId,
@@ -1222,7 +1308,7 @@ function App() {
                         start_index: startIdx,
                         end_index: startIdx,
                         max_working_time: 36000,
-                        layover_config: { max_continuous_time: 18000, layover_duration: 1800, include_service_time: true },
+                        layover_config: { max_continuous_time: maxContinuous, layover_duration: 1800, include_service_time: true },
                         capacity: [
                           Number.isFinite(cap.weight) ? cap.weight * 10 : 0, // weight constraint times 10
                           Number.isFinite(cap.pallets) ? cap.pallets : 0     // pallet capacity
@@ -1233,30 +1319,59 @@ function App() {
                     // Jobs and Shipments from selectedDeliveryKeys
                     const jobs = [];
                     const shipments = [];
+                    const excludedFullOpt = [];
+                    const includedFullOpt = [];
                     routes.forEach((route, rIndex) => {
                       (route.deliveries || []).forEach((d, dIndex) => {
                         const key = `${route.routeId ?? rIndex}::${dIndex}`;
-                        if (!selectedDeliveryKeys.has(key)) return;
-                        if (d?.isBreak) return;
+                        const baseIdForDebug = d.pocJobId || `${d.locationId || ''}-${route.routeId || rIndex}-${dIndex}`;
+                        const commonDebug = {
+                          id: baseIdForDebug,
+                          routeId: route.routeId,
+                          stopNumber: d.stopNumber,
+                          locationId: d.locationId,
+                          locationName: d.locationName,
+                        };
+                        if (!selectedDeliveryKeys.has(key)) {
+                          excludedFullOpt.push({ ...commonDebug, reason: 'not-selected' });
+                          return;
+                        }
+                        if (d?.isBreak) {
+                          excludedFullOpt.push({ ...commonDebug, reason: 'break-row' });
+                          return;
+                        }
                         const lat = d?.geocode?.latitude ?? d?.latitude;
                         const lng = d?.geocode?.longitude ?? d?.longitude;
-                        if (lat == null || lng == null) return;
+                        if (lat == null || lng == null) {
+                          excludedFullOpt.push({ ...commonDebug, reason: 'no-geocode' });
+                          return;
+                        }
                         const locIdx = getIndexForCoord(`${lat},${lng}`);
                         const palletsNum = toNumber(d.cube || d.pallets || '');
                         const weightNum = toNumber(d.weight || '');
                         const adjPallets = Number.isFinite(palletsNum) ? Math.ceil(palletsNum) : 0;
                         const adjWeight = Number.isFinite(weightNum) ? Math.round(weightNum * 10) : 0; // ensure whole integer
-                        const serviceSeconds = serviceToSeconds(d.service);
+                        const isPocFile = String(data?.fileName || '').startsWith('POC_');
+                        const serviceSeconds = isPocFile ? 10 * 60 : serviceToSeconds(d.service);
                         const selectorRaw = String(d?.Selector ?? d?.selector ?? '').trim().toUpperCase();
-                        const sequence_order = selectorRaw === 'B' ? 1 : 99;
+                        const nameUpper = String(d?.locationName || '').toUpperCase();
+                        const sequence_order = nameUpper.includes('WALMART')
+                          ? 1
+                          : (selectorRaw === 'B' ? 2 : 99);
+                        const selectorDisplay = selectorRaw || 'S';
+                        const serviceWindowsStr = d.serviceWindows || d.openCloseTime || '';
+                        const weightStr = d.weight || '';
+                        const palletsStr = d.cube || d.pallets || '';
+                        const descriptionStr = `${d.locationName || ''}|${d.address || ''}|${serviceWindowsStr}|${weightStr}|${palletsStr}|${selectorDisplay}`;
                         // Special rule: treat specific location as a shipment, not a job
                         if (String(d.locationId || '') === '2004704998') {
                           // Ensure depot/start is at index 0 if not yet added
                           const startLoc = depot || computeStartLocation(route);
                           const startIdx = getIndexForCoord(startLoc);
                           // Build shipment with provided constants
-                          shipments.push({
+                          const shipment = {
                             id: `${d.locationId}-S`,
+                            description: descriptionStr,
                             pickup: {
                               id: '2004704998P',
                               location_index: startIdx, // 0 in our locations list
@@ -1270,15 +1385,24 @@ function App() {
                               time_windows: [[1760608800, 1760644800]]
                             },
                             amount: [393800, 24]
+                          };
+                          shipments.push(shipment);
+                          includedFullOpt.push({
+                            ...commonDebug,
+                            reason: 'shipment',
+                            type: 'shipment',
+                            nbId: shipment.id
                           });
                           return;
                         }
                         // Default path: create a job
+                        const pocJobId = isPocFile && d.pocJobId ? String(d.pocJobId) : null;
                         const baseJob = {
-                          id: `${d.locationId || ''}-${route.routeId || rIndex}-${dIndex}`,
+                          id: pocJobId || `${d.locationId || ''}-${route.routeId || rIndex}-${dIndex}`,
                           location_index: locIdx,
                           service: serviceSeconds,
                           sequence_order,
+                          description: descriptionStr,
                         };
                         if (d.isDepotResupply) {
                           baseJob.pickup = [adjWeight, adjPallets];
@@ -1286,8 +1410,31 @@ function App() {
                           baseJob.delivery = [adjWeight, adjPallets];
                         }
                         jobs.push(baseJob);
+                        includedFullOpt.push({
+                          ...commonDebug,
+                          reason: 'job',
+                          type: d.isDepotResupply ? 'depot-resupply' : 'delivery',
+                          nbId: baseJob.id
+                        });
                       });
                     });
+
+                    if (debugMode) {
+                      if (excludedFullOpt.length > 0) {
+                        // Debug-only: which stops were filtered out of Full Optimization
+                        // (viewable in browser devtools console)
+                        // eslint-disable-next-line no-console
+                        console.table(excludedFullOpt);
+                      }
+                      if (includedFullOpt.length > 0) {
+                        // Debug-only: which stops are included in Full Optimization
+                        // (viewable in browser devtools console)
+                        // eslint-disable-next-line no-console
+                        console.table(includedFullOpt);
+                        // eslint-disable-next-line no-console
+                        console.log('Full Optimization included stop count:', includedFullOpt.length);
+                      }
+                    }
 
                     const requestBody = {
                       locations: { location: locations },
@@ -1295,12 +1442,11 @@ function App() {
                       jobs,
                       ...(shipments.length > 0 ? { shipments } : {}),
                       options: { 
-                        routing: { mode: 'truck', traffic_timestamp: 1763629200 }, 
+                        routing: { mode: 'truck' }, 
                         objective: { travel_cost: 'duration' }
                       },
                       description: 'Full Optimization (selected vehicles and deliveries)'
                     };
-                    console.log('Full Optimization request body:', JSON.stringify(requestBody, null, 2));
                     // Submit to backend which will poll until complete
                     const resp = await fetch('/api/optimize-full', {
                       method: 'POST',
@@ -1356,8 +1502,13 @@ function App() {
                     <p className="text-sm font-medium text-gray-600">Assigned Deliveries</p>
                     <p className="mt-2 text-3xl font-bold text-gray-900">
                       {fullOptResult.result.routes?.reduce((sum, route) => {
-                        const deliveryCount = route.steps?.filter(step => step.type === 'job').length ?? 0;
-                        return sum + deliveryCount;
+                        const deliveryCount = (route.steps || []).filter(
+                          (step) => {
+                            const t = String(step?.type || '').toLowerCase();
+                            return t === 'job' || t === 'delivery';
+                          }
+                        ).length;
+                        return sum + (Number.isFinite(deliveryCount) ? deliveryCount : 0);
                       }, 0) ?? 0}
                     </p>
                   </div>
@@ -1366,10 +1517,16 @@ function App() {
                     <p className="mt-2 text-3xl font-bold text-gray-900">
                       {(() => {
                         const vehicleCount = fullOptResult.result.routes?.length ?? 0;
-                        const totalDeliveries = fullOptResult.result.routes?.reduce((sum, route) => {
-                          const deliveryCount = route.steps?.filter(step => step.type === 'job').length ?? 0;
-                          return sum + deliveryCount;
-                        }, 0) ?? 0;
+                        const totalDeliveries =
+                          fullOptResult.result.routes?.reduce((sum, route) => {
+                            const deliveryCount = (route.steps || []).filter(
+                              (step) => {
+                                const t = String(step?.type || '').toLowerCase();
+                                return t === 'job' || t === 'delivery';
+                              }
+                            ).length;
+                            return sum + (Number.isFinite(deliveryCount) ? deliveryCount : 0);
+                          }, 0) ?? 0;
                         return vehicleCount > 0 ? (totalDeliveries / vehicleCount).toFixed(1) : 0;
                       })()}
                     </p>

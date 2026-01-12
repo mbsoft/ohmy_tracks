@@ -22,6 +22,14 @@ function formatDistance(meters) {
   return `${miles.toFixed(1)} mi`;
 }
 
+function formatEpochToHHMM(epochSeconds) {
+  if (epochSeconds == null) return '-';
+  const d = new Date(epochSeconds * 1000);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
 function toFixed6(num) {
   const n = Number(num);
   if (!Number.isFinite(n)) return '';
@@ -42,6 +50,9 @@ function depotFromFileName(fileName) {
   if (!fileName) return '';
   if (fileName.startsWith('ATL')) return formatLatLngString('33.807970,-84.436960');
   if (fileName.startsWith('NB Mays')) return formatLatLngString('39.442140,-74.703320');
+  if (fileName.startsWith('NB Mesquite ')) return formatLatLngString('32.761533,-96.591010');
+  if (fileName.startsWith('POC_Tiffin')) return formatLatLngString('41.11225919719799,-83.21798883794955');
+  if (fileName.startsWith('POC_Kalamazoo')) return formatLatLngString('42.2550391777153,-85.52065590857512');
   return '';
 }
 
@@ -68,7 +79,16 @@ function RequestIdLink({ requestId }) {
   );
 }
 
-function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingRouteIds, fileName, selectedRouteIds, toggleRouteSelection }) {
+function DataTable({
+  routes,
+  handleOptimizeRoute,
+  handleOptimizeAll,
+  optimizingRouteIds,
+  fileName,
+  selectedRouteIds,
+  toggleRouteSelection,
+  toggleAllRoutes,
+}) {
   const [expandedRoutes, setExpandedRoutes] = useState({});
   const [routeStartLocations, setRouteStartLocations] = useState({});
   const [optimizingAll, setOptimizingAll] = useState(false);
@@ -118,14 +138,21 @@ function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingR
   const optimizeAll = async () => {
     try {
       setOptimizingAll(true);
+      const routeEntries = routes.map((route, routeIndex) => ({ route, routeIndex }));
+      const selectedEntries = routeEntries.filter(({ route, routeIndex }) =>
+        selectedRouteIds.has(String(route.routeId ?? routeIndex))
+      );
+      if (selectedEntries.length === 0) {
+        return;
+      }
       if (typeof handleOptimizeAll === 'function') {
-        await handleOptimizeAll();
+        await handleOptimizeAll(selectedEntries.map((e) => e.route));
       } else {
         // Fallback: run concurrent on client (may exceed server-side limits)
         await Promise.all(
-          routes.map((r, i) => {
-            const startLocation = getStartLocation(i);
-            return handleOptimizeRoute(r.routeId, startLocation);
+          selectedEntries.map(({ route, routeIndex }) => {
+            const startLocation = getStartLocation(routeIndex);
+            return handleOptimizeRoute(route.routeId, startLocation);
           })
         );
       }
@@ -134,15 +161,30 @@ function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingR
     }
   };
 
+  const allRoutesSelected =
+    routes.length > 0 &&
+    routes.every((route, routeIndex) =>
+      selectedRouteIds.has(String(route.routeId ?? routeIndex))
+    );
+
   return (
     <div className="bg-white rounded-lg shadow overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-gray-900">Routes & Deliveries</h2>
+        <div className="flex items-center space-x-4">
+          <h2 className="text-lg font-semibold text-gray-900">Routes &amp; Deliveries</h2>
+          <button
+            type="button"
+            className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+            onClick={toggleAllRoutes}
+          >
+            {allRoutesSelected ? 'Deselect All Routes' : 'Select All Routes'}
+          </button>
+        </div>
         <button
           className="inline-flex items-center bg-[#8F59A0] hover:bg-[#7a3f87] text-white font-semibold text-sm py-2 px-4 rounded disabled:opacity-50 disabled:cursor-not-allowed"
           onClick={optimizeAll}
           disabled={optimizingAll}
-          title="Run optimization for all routes"
+          title="Run optimization for selected routes"
         >
           {optimizingAll ? (
             <>
@@ -150,10 +192,10 @@ function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingR
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
-              Optimizing All...
+              Optimizing Selected...
             </>
           ) : (
-            'Optimize All'
+            'Optimize Selected Routes'
           )}
         </button>
       </div>
@@ -220,7 +262,7 @@ function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingR
                   {/* Summary table - centered and larger font */}
                   {true && (
                     <div className="flex-1 flex justify-center">
-                      <table className="min-w-[900px] text-sm md:text-base text-gray-800 border border-gray-200 rounded shadow-sm">
+                      <table className="min-w-[1100px] text-sm md:text-base text-gray-800 border border-gray-200 rounded shadow-sm">
                         <thead>
                           <tr className="bg-gray-100">
                             <th className="px-3 md:px-4 py-2 text-left">Type</th>
@@ -229,6 +271,8 @@ function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingR
                             <th className="px-3 md:px-4 py-2 text-left whitespace-nowrap">Drive</th>
                             <th className="px-3 md:px-4 py-2 text-left whitespace-nowrap">Total</th>
                             <th className="px-3 md:px-4 py-2 text-left">Unassigned</th>
+                            <th className="px-3 md:px-4 py-2 text-left whitespace-nowrap">Route Start</th>
+                            <th className="px-3 md:px-4 py-2 text-left whitespace-nowrap">Route End</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -243,6 +287,31 @@ function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingR
                             const noSeqDistance = formatDistance(noSeq?.distance);
                             const noSeqDrive = formatDuration(noSeq?.duration);
                             const noSeqTotal = (typeof noSeq?.duration === 'number' && typeof noSeq?.service === 'number') ? formatDuration(noSeq.duration + noSeq.service) : '-';
+                            // Derive actual route start/end from NextBillion steps (start/end types)
+                            const seqRoot = route.summary?.resultInSeq?.result || route.summary?.resultInSeq;
+                            const seqSteps = seqRoot?.routes?.[0]?.steps || [];
+                            let inSeqStart = '-';
+                            let inSeqEnd = '-';
+                            if (Array.isArray(seqSteps) && seqSteps.length > 0) {
+                              const firstStartStep = seqSteps.find((s) => String(s?.type || '').toLowerCase() === 'start') || seqSteps[0];
+                              const lastEndStep = [...seqSteps].reverse().find((s) => String(s?.type || '').toLowerCase() === 'end') || seqSteps[seqSteps.length - 1];
+                              const startTs = firstStartStep.arrival ?? firstStartStep.start_time ?? firstStartStep.time ?? firstStartStep.start;
+                              const endTs = lastEndStep.arrival ?? lastEndStep.departure ?? lastEndStep.end_time ?? lastEndStep.time ?? lastEndStep.end;
+                              inSeqStart = typeof startTs === 'number' ? formatEpochToHHMM(startTs) : '-';
+                              inSeqEnd = typeof endTs === 'number' ? formatEpochToHHMM(endTs) : '-';
+                            }
+                            const noRoot = route.summary?.result?.result || route.summary?.result;
+                            const noSteps = noRoot?.routes?.[0]?.steps || [];
+                            let noSeqStart = '-';
+                            let noSeqEnd = '-';
+                            if (Array.isArray(noSteps) && noSteps.length > 0) {
+                              const firstStartStep = noSteps.find((s) => String(s?.type || '').toLowerCase() === 'start') || noSteps[0];
+                              const lastEndStep = [...noSteps].reverse().find((s) => String(s?.type || '').toLowerCase() === 'end') || noSteps[noSteps.length - 1];
+                              const startTs = firstStartStep.arrival ?? firstStartStep.start_time ?? firstStartStep.time ?? firstStartStep.start;
+                              const endTs = lastEndStep.arrival ?? lastEndStep.departure ?? lastEndStep.end_time ?? lastEndStep.time ?? lastEndStep.end;
+                              noSeqStart = typeof startTs === 'number' ? formatEpochToHHMM(startTs) : '-';
+                              noSeqEnd = typeof endTs === 'number' ? formatEpochToHHMM(endTs) : '-';
+                            }
                               return (
                                 <>
                                   <tr className="bg-blue-50 hover:bg-blue-100 transition-colors">
@@ -254,6 +323,8 @@ function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingR
                                     <td className="px-3 md:px-4 py-2 whitespace-nowrap">{inSeqDrive}</td>
                                     <td className="px-3 md:px-4 py-2 whitespace-nowrap">{inSeqTotal}</td>
                                     <td className="px-3 md:px-4 py-2">{inSeqUnassigned}</td>
+                                    <td className="px-3 md:px-4 py-2 whitespace-nowrap">{inSeqStart}</td>
+                                    <td className="px-3 md:px-4 py-2 whitespace-nowrap">{inSeqEnd}</td>
                                   </tr>
                                   <tr className="bg-green-50 hover:bg-green-100 transition-colors">
                                     <td className="px-3 md:px-4 py-2 font-medium">optimized</td>
@@ -264,6 +335,8 @@ function DataTable({ routes, handleOptimizeRoute, handleOptimizeAll, optimizingR
                                     <td className="px-3 md:px-4 py-2 whitespace-nowrap">{noSeqDrive}</td>
                                     <td className="px-3 md:px-4 py-2 whitespace-nowrap">{noSeqTotal}</td>
                                     <td className="px-3 md:px-4 py-2">{noSeqUnassigned}</td>
+                                    <td className="px-3 md:px-4 py-2 whitespace-nowrap">{noSeqStart}</td>
+                                    <td className="px-3 md:px-4 py-2 whitespace-nowrap">{noSeqEnd}</td>
                                   </tr>
                                 </>
                               );

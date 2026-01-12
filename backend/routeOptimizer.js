@@ -17,8 +17,32 @@ function determineDepotLocation(fileName) {
     return '33.807970,-84.43696';
   } else if (fileName && fileName.startsWith('NB Mays')) {
     return '39.44214,-74.70332';
+  } else if (fileName && fileName.startsWith('POC_Tiffin')) {
+    return '41.11225919719799,-83.21798883794955';
+  } else if (fileName && fileName.startsWith('POC_Kalamazoo')) {
+    return '42.2550391777153,-85.52065590857512';
+  } else if (fileName && fileName.startsWith('Chicago 35th')) {
+    return '41.83071019891988,-87.66267818901879';
+  } else if (fileName && fileName.startsWith('NB Mesquite,')) {
+    return '32.761533,-96.591010';
   }
   return null; // Default or handle error
+}
+
+function buildJobId(fileName, delivery, route) {
+  // Prefer explicit POC job id column when present
+  if (fileName && fileName.startsWith('POC_') && delivery?.pocJobId) {
+    return String(delivery.pocJobId);
+  }
+  const stop = String(delivery?.stopNumber || '').trim();
+  const name = String(delivery?.locationName || '').trim();
+  const routeId = String(route?.routeId || '').trim();
+  // For POC_* files, use composite of stop number and location name
+  if (fileName && fileName.startsWith('POC_') && stop && name) {
+    return `${stop}-${name}`;
+  }
+  // Default: stop number plus route id (legacy behavior)
+  return `${stop}-${routeId}`;
 }
 
 function deriveVehicleCapacity(equipmentTypeId) {
@@ -29,6 +53,14 @@ function deriveVehicleCapacity(equipmentTypeId) {
   if (s.startsWith('48LG')) return { weight: 41000, pallets: 32 };
   if (s.startsWith('18BT')) return { weight: 12000, pallets: 12 };
   return { weight: 0, pallets: 0 };
+}
+
+function getServiceSeconds(fileName, delivery) {
+  // For POC_* files, override to fixed 10-minute service time
+  if (fileName && fileName.startsWith('POC_')) {
+    return 10 * 60;
+  }
+  return convertToSecondsSafe(delivery?.service);
 }
 
 function getTimezoneOffsetSeconds(routeDateTime) {
@@ -121,7 +153,6 @@ function deriveTimeWindowEpochs(openCloseTime, routeDateTime, fallbackArrival, f
 async function submitAndPoll(requestBody, apiKey) {
   const url = `https://api.nextbillion.io/optimization/v2?key=${apiKey}`;
   console.log('NB Optimization request URL:', url);
-  console.log('NB Optimization request body:', JSON.stringify(requestBody, null, 2));
   let submitResp;
   try {
     submitResp = await axios.post(url, requestBody, { headers: { 'Content-Type': 'application/json' } });
@@ -166,8 +197,11 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
     const shipmentsNoSeq = [];
     const hasPickup = Array.isArray(route.deliveries) && route.deliveries.some((d) => !!d?.isDepotResupply);
     const shiftStartEpoch = new Date(route.routeStartTime).getTime() / 1000;
-    const shiftEndSeqEpoch = shiftStartEpoch + 12 * 3600;
-    const shiftEndNoSeqEpoch = shiftStartEpoch + 20 * 3600;
+    const isPocFile = fileName && fileName.startsWith('POC_');
+    const shiftEndSeqEpoch = isPocFile ? shiftStartEpoch + 24 * 3600 : shiftStartEpoch + 12 * 3600;
+    const shiftEndNoSeqEpoch = isPocFile ? shiftStartEpoch + 24 * 3600 : shiftStartEpoch + 20 * 3600;
+    // Ensure job ids are unique within this optimization request
+    const jobIdCounts = new Map();
     for (const delivery of route.deliveries) {
       // Use depot location index for depot resupply even if stop has no coordinates
       let locIdx;
@@ -185,10 +219,15 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
         delivery.arrival,
         delivery.depart
       );
+      const baseId = buildJobId(fileName, delivery, route);
+      const currentCount = jobIdCounts.get(baseId) || 0;
+      const nextCount = currentCount + 1;
+      jobIdCounts.set(baseId, nextCount);
+      const uniqueJobId = nextCount > 1 ? `${baseId}-${nextCount}` : baseId;
       const common = {
-        id: `${delivery.stopNumber}-${route.routeId}`,
+        id: uniqueJobId,
         description: `${delivery.stopNumber}|${delivery.locationName}|${delivery.address}|${delivery.arrival}-${delivery.depart}`,
-        service: convertToSecondsSafe(delivery.service),
+        service: getServiceSeconds(fileName, delivery),
         location_index: locIdx,
         time_windows: [[twStart, twEnd]],
       };
@@ -200,10 +239,10 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
       if (hasPickup) {
         // Build shipments for all non-pickup stops; skip explicit pickup-only jobs
         if (!delivery.isDepotResupply) {
-          const locationIdRaw = String(delivery.locationId || `${delivery.stopNumber}-${route.routeId}`);
+          const locationIdRaw = String(delivery.locationId || uniqueJobId);
           shipmentsNoSeq.push({
             // optional id for traceability
-            id: `${delivery.stopNumber}-${route.routeId}`,
+            id: uniqueJobId,
             pickup: {
               id: `${locationIdRaw}P`,
               location_index: depotIndex,
@@ -213,7 +252,7 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
             delivery: {
               id: `${locationIdRaw}D`,
               location_index: locIdx,
-              service: convertToSecondsSafe(delivery.service),
+              service: getServiceSeconds(fileName, delivery),
               time_windows: [[twStart, twEnd]]
             },
             amount: [adjWeight10, adjPallets]
@@ -228,7 +267,6 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
     }
 
     // shiftStartEpoch/shiftEndSeqEpoch already computed above
-
     const vehicle = {
       id: route.routeId,
       description: `${route.routeId}-${route.driverName}-${route.deliveries.length}`,
@@ -236,7 +274,8 @@ async function optimizeRoutes(routeData, fileName, env, depotLocationFromClient)
       start_index: depotIndex,
       end_index: depotIndex,
       layover_config: {
-        max_continuous_time: 18000,
+        // For POC_ files: 30-minute layover after 8 hours driving
+        max_continuous_time: isPocFile ? 8 * 3600 : 18000,
         layover_duration: 1800,
         include_service_time: true
       }
@@ -414,8 +453,11 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
     const shipmentsNoSeq = [];
     const hasPickup = Array.isArray(route.deliveries) && route.deliveries.some((d) => !!d?.isDepotResupply);
     const shiftStartEpoch = new Date(route.routeStartTime).getTime() / 1000;
-    const shiftEndSeqEpoch = shiftStartEpoch + 12 * 3600;
-    const shiftEndNoSeqEpoch = shiftStartEpoch + 20 * 3600;
+    const isPocFile = fileName && fileName.startsWith('POC_');
+    const shiftEndSeqEpoch = isPocFile ? shiftStartEpoch + 24 * 3600 : shiftStartEpoch + 12 * 3600;
+    const shiftEndNoSeqEpoch = isPocFile ? shiftStartEpoch + 24 * 3600 : shiftStartEpoch + 20 * 3600;
+    // Ensure job ids are unique within this optimization request
+    const jobIdCounts = new Map();
     for (const delivery of route.deliveries) {
       // Use depot location index for depot resupply even if stop has no coordinates
       let locIdx;
@@ -433,10 +475,15 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
         delivery.arrival,
         delivery.depart
       );
+      const baseId = buildJobId(fileName, delivery, route);
+      const currentCount = jobIdCounts.get(baseId) || 0;
+      const nextCount = currentCount + 1;
+      jobIdCounts.set(baseId, nextCount);
+      const uniqueJobId = nextCount > 1 ? `${baseId}-${nextCount}` : baseId;
       const common = {
-        id: `${delivery.stopNumber}-${route.routeId}`,
+        id: uniqueJobId,
         description: `${delivery.stopNumber}|${delivery.locationName}|${delivery.address}|${delivery.arrival}-${delivery.depart}`,
-        service: convertToSecondsSafe(delivery.service),
+        service: getServiceSeconds(fileName, delivery),
         location_index: locIdx,
         time_windows: [[twStart, twEnd]],
       };
@@ -447,9 +494,9 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
         const adjPallets = Math.max(0, Math.ceil(palletsNum));
         const adjWeight10 = Math.max(0, Math.round(weightNum * 10));
         if (!delivery.isDepotResupply) {
-          const locationIdRaw = String(delivery.locationId || `${delivery.stopNumber}-${route.routeId}`);
+          const locationIdRaw = String(delivery.locationId || uniqueJobId);
           shipmentsNoSeq.push({
-            id: `${delivery.stopNumber}-${route.routeId}`,
+            id: uniqueJobId,
             pickup: {
               id: `${locationIdRaw}P`,
               location_index: depotIndex,
@@ -459,7 +506,7 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
             delivery: {
               id: `${locationIdRaw}D`,
               location_index: locIdx,
-              service: convertToSecondsSafe(delivery.service),
+              service: getServiceSeconds(fileName, delivery),
               time_windows: [[twStart, twEnd]]
             },
             amount: [adjWeight10, adjPallets]
@@ -473,14 +520,18 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
     }
 
     // shiftStartEpoch/shiftEndSeqEpoch already computed above
-
     const vehicle = {
       id: route.routeId,
       description: `${route.routeId}-${route.driverName}-${route.deliveries.length}`,
       time_window: [shiftStartEpoch, shiftEndSeqEpoch],
       start_index: depotIndex,
       end_index: depotIndex,
-      layover_config: { max_continuous_time: 18000, layover_duration: 1800, include_service_time: true }
+      layover_config: {
+        // For POC_ files: 30-minute layover after 8 hours driving
+        max_continuous_time: isPocFile ? 8 * 3600 : 18000,
+        layover_duration: 1800,
+        include_service_time: true
+      }
     };
 
     const vehicleSeq = {
@@ -537,7 +588,6 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
 
     // Submit both runs under submit limiter
     console.log('NB Optimization (All) request URL:', 'https://api.nextbillion.io/optimization/v2?key=***');
-    console.log('NB Optimization (All) in-sequence body:', JSON.stringify(requestBodySeq, null, 2));
     const submitSeq = await submitLimit(async () => {
       try {
         return await axios.post(`https://api.nextbillion.io/optimization/v2?key=${apiKey}`, requestBodySeq, { headers: { 'Content-Type': 'application/json' } });
@@ -546,7 +596,6 @@ async function optimizeAllRoutes(routeData, fileName, env, depotLocationFromClie
         throw new Error(describeAxiosError(err));
       }
     });
-    console.log('NB Optimization (All) no-sequence body:', JSON.stringify(requestBodyNoSeq, null, 2));
     const submitNo  = await submitLimit(async () => {
       try {
         return await axios.post(`https://api.nextbillion.io/optimization/v2?key=${apiKey}`, requestBodyNoSeq, { headers: { 'Content-Type': 'application/json' } });

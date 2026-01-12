@@ -98,13 +98,24 @@ function normalizeForKey(s) {
 
 async function readExtractMappingFor(baseFileName) {
   if (!baseFileName) return { map: {}, from: null };
-  const base = String(baseFileName).replace(/\.xlsx?$/i, '');
-  const candidates = [
-    `${base}.extract.xlsx`,
-    `${base}.extract.xls`,
-    `${base} extract.xlsx`,
-    `${base} extract.xls`,
-  ];
+  const originalBase = String(baseFileName).replace(/\.xlsx?$/i, '');
+  // Support "rev" suffixes like "ATL 10.16_rev2.xlsx" by also trying the
+  // base name with any trailing `_revN` removed, so both files can share
+  // a single extract like "ATL 10.16 extract.xlsx".
+  const baseCandidates = [originalBase];
+  const revStripped = originalBase.replace(/_rev\d*$/i, '');
+  if (revStripped && revStripped !== originalBase) {
+    baseCandidates.push(revStripped);
+  }
+  const candidateNames = [];
+  for (const base of baseCandidates) {
+    candidateNames.push(
+      `${base}.extract.xlsx`,
+      `${base}.extract.xls`,
+      `${base} extract.xlsx`,
+      `${base} extract.xls`,
+    );
+  }
   const searchRoots = [
     process.cwd(),
     __dirname,
@@ -112,7 +123,7 @@ async function readExtractMappingFor(baseFileName) {
   ];
   let foundPath = null;
   for (const root of searchRoots) {
-    for (const name of candidates) {
+    for (const name of candidateNames) {
       const p = path.join(root, name);
       try {
         fs.accessSync(p, fs.constants.R_OK);
@@ -144,14 +155,19 @@ async function readExtractMappingFor(baseFileName) {
     }
     return null;
   };
+  // Prefer Location/Location Name for selector mapping; fall back to address+city only if needed.
+  const locationKey = findKey('Location', 'Location Name', 'Ship-To Name', 'Customer', 'Store', 'Account');
   const addrKey = findKey('Address Line 1', 'Address1', 'Address', 'Street', 'AddressLine1');
   const cityKey = findKey('City', 'Town');
   const selectorKey = findKey('Selector', 'B/S', 'BS', 'Type', 'Order Type', 'Select');
   const map = {};
   for (const row of rows) {
-    const street = addrKey ? row[addrKey] : '';
-    const city = cityKey ? row[cityKey] : '';
-    if (!street || !city) continue;
+    const locName = locationKey ? String(row[locationKey] || '').trim() : '';
+    const street = addrKey ? String(row[addrKey] || '').trim() : '';
+    const city = cityKey ? String(row[cityKey] || '').trim() : '';
+    // Prefer Location Name as key; if missing, fall back to address+city.
+    const rawKey = locName || `${street} ${city}`.trim();
+    if (!rawKey) continue;
     let sel = 'S';
     if (selectorKey) {
       const val = String(row[selectorKey] ?? '').trim().toUpperCase();
@@ -160,7 +176,7 @@ async function readExtractMappingFor(baseFileName) {
       const hasB = Object.values(row).some(v => String(v).trim().toUpperCase() === 'B');
       sel = hasB ? 'B' : 'S';
     }
-    const key = normalizeForKey(`${street} ${city}`);
+    const key = normalizeForKey(rawKey);
     if (key) map[key] = sel;
   }
   return { map, from: foundPath };

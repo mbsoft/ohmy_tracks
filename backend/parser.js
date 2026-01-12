@@ -422,17 +422,11 @@ function parsePocXLS(buffer) {
     byRouteId.get(rId).push(row);
   }
   const routes = [];
+  // Global sequential counter so pocJobId is unique across all routes in the file
+  let pocJobSeqGlobal = 0;
   for (const [rId, rRows] of byRouteId.entries()) {
-    const route = {
-      routeId: rId,
-      driverId: '',
-      driverName: driverKey ? String(rRows[0]?.[driverKey] || '').trim() : '',
-      equipmentType: equipKey ? String(rRows[0]?.[equipKey] || '').trim() : '',
-      routeStartTime: startKey ? String(rRows[0]?.[startKey] || '').trim() : '',
-      routeEndTime: endKey ? String(rRows[0]?.[endKey] || '').trim() : '',
-      location: locationKey ? String(rRows[0]?.[locationKey] || '').trim() : '',
-      deliveries: []
-    };
+    // Further group by day token so each (Route, Day) becomes its own route
+    const byDay = new Map();
     for (const row of rRows) {
       // Skip empty or header-like rows
       const stopVal = stopKey ? String(row[stopKey] || '').trim() : '';
@@ -450,6 +444,23 @@ function parsePocXLS(buffer) {
         const c = dayRaw[0];
         return ['M', 'T', 'W', 'R', 'F'].includes(c) ? c : '';
       })();
+      const keyDay = dayToken || '';
+
+      // Initialize route for this (routeId, day) combination if needed
+      if (!byDay.has(keyDay)) {
+        byDay.set(keyDay, {
+          routeId: rId,
+          driverId: '',
+          driverName: driverKey ? String(rRows[0]?.[driverKey] || '').trim() : '',
+          equipmentType: equipKey ? String(rRows[0]?.[equipKey] || '').trim() : '',
+          routeStartTime: startKey ? String(rRows[0]?.[startKey] || '').trim() : '',
+          routeEndTime: endKey ? String(rRows[0]?.[endKey] || '').trim() : '',
+          location: locationKey ? String(rRows[0]?.[locationKey] || '').trim() : '',
+          deliveries: []
+        });
+      }
+      const route = byDay.get(keyDay);
+
       const addressParts = [];
       if (addr1) addressParts.push(addr1);
       const addr2 = addr2Key ? String(row[addr2Key] || '').trim() : '';
@@ -509,23 +520,35 @@ function parsePocXLS(buffer) {
         standardInstructions: '',
         specialInstructions: ''
       };
+      // For POC_* workflows, create a unique per-row job id across entire file:
+      // "<Stop #>-<Location Name>-<sequential job number>"
+      pocJobSeqGlobal += 1;
+      delivery.pocJobSeq = pocJobSeqGlobal;
+      delivery.pocJobId = `${delivery.stopNumber || ''}-${delivery.locationName || ''}-${pocJobSeqGlobal}`;
       // Annotate paid break if name suggests it
       if (String(delivery.locationName || '').toLowerCase().includes('break')) {
         delivery.isBreak = true;
       }
       route.deliveries.push(delivery);
     }
-    // For POC routes, set routeStartTime based on day letter in deliveries for week of Oct 5, 2025
-    const dow = (route.deliveries.find((d) => !!d.day)?.day) || '';
-    if (dow) {
-      const baseDateByDay = { M: '10/06/2025', T: '10/07/2025', W: '10/08/2025', R: '10/09/2025', F: '10/10/2025' };
-      const dateStr = baseDateByDay[dow];
-      if (dateStr) {
-        route.routeStartTime = `${dateStr} 04:00 EDT`;
-        route.routeEndTime = `${dateStr} 23:59 EDT`;
+
+    // Finalize each (Route, Day) as its own route entry
+    for (const [dayToken, route] of byDay.entries()) {
+      const dow = dayToken || (route.deliveries.find((d) => !!d.day)?.day) || '';
+      if (dow) {
+        const baseDateByDay = { M: '10/06/2025', T: '10/07/2025', W: '10/08/2025', R: '10/09/2025', F: '10/10/2025' };
+        const dateStr = baseDateByDay[dow];
+        if (dateStr) {
+          route.routeStartTime = `${dateStr} 04:00 EDT`;
+          route.routeEndTime = `${dateStr} 23:59 EDT`;
+        }
+        // Include the day indicator in the route id so 22-T and 22-F are distinct routes
+        route.routeId = `${rId}-${dow}`;
+      } else {
+        route.routeId = rId;
       }
+      routes.push(route);
     }
-    routes.push(route);
   }
   return {
     routes,
