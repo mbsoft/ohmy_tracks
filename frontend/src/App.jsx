@@ -346,10 +346,18 @@ function App() {
   }, []);
 
   const deriveVehicleCapacity = (equipmentTypeId) => {
-    const s = String(equipmentTypeId || '').trim();
-    const prefix = Object.keys(vehicleCapacities).find((prefix) => s.startsWith(prefix));
-    if (prefix) {
-      return vehicleCapacities[prefix];
+    const s = String(equipmentTypeId || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!s) return { weight: '', pallets: '' };
+
+    const keys = Object.keys(vehicleCapacities);
+    // Try to find a key that, when normalized, matches the start of our normalized input
+    const match = keys.find(key => {
+      const normKey = key.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      return s.startsWith(normKey);
+    });
+
+    if (match) {
+      return vehicleCapacities[match];
     }
     return { weight: '', pallets: '' };
   };

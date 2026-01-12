@@ -21,7 +21,7 @@ function parseOmnitracXLS(buffer) {
   let equipmentTypeHeaderFound = false;
 
   // Define the list of equipment types to detect
-  const equipmentTypes = ['14BAY', '32LG', '28LG', '40LG', '18BT', '48LG', '48FT'];
+  const equipmentTypes = ['14BAY', '16BAY', '10BAY', '4BAY', '32LG', '28LG', '40LG', '18BT', '20BT', '48LG', '48FT', '53FT'];
 
   while (i < data.length) {
     const row = data[i];
@@ -30,6 +30,7 @@ function parseOmnitracXLS(buffer) {
     // Reset equipmentType found for each route
     if (firstCell.startsWith('Route Id:')) {
       if (currentRoute) {
+        delete currentRoute.equipmentTypeFromRouteId;
         routes.push(currentRoute);
       }
       currentRoute = {
@@ -42,12 +43,27 @@ function parseOmnitracXLS(buffer) {
         deliveries: []
       };
       equipmentTypeHeaderFound = false;
+
+      // Try to extract equipment type from Route Id as a fallback
+      const routeIdUpper = currentRoute.routeId.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const foundType = equipmentTypes.find(type => routeIdUpper.includes(type));
+      if (foundType) {
+        currentRoute.equipmentType = foundType;
+        currentRoute.equipmentTypeFromRouteId = true; // Mark as fallback
+      }
     }
 
     // Check for equipment types in the list
-    const equipmentCell = String(row[8] || '').trim();
-    if (equipmentTypes.some(type => equipmentCell.startsWith(type)) && !currentRoute.equipmentType) {
-      currentRoute.equipmentType = equipmentCell;
+    const rawEquipmentCell = String(row[8] || '').trim();
+    const normalizedEquipmentCell = rawEquipmentCell.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    
+    // If we find a match in the equipment column, use it. 
+    // We allow overwriting if the current one was just a fallback from Route ID.
+    if (equipmentTypes.some(type => normalizedEquipmentCell.startsWith(type))) {
+      if (!currentRoute.equipmentType || currentRoute.equipmentTypeFromRouteId) {
+        currentRoute.equipmentType = rawEquipmentCell;
+        currentRoute.equipmentTypeFromRouteId = false;
+      }
     }
     
     // Look for Driver (independent of equipment parsing; both can exist on the same row)
@@ -193,6 +209,7 @@ function parseOmnitracXLS(buffer) {
   
   // Save last route
   if (currentRoute) {
+    delete currentRoute.equipmentTypeFromRouteId;
     routes.push(currentRoute);
   }
   

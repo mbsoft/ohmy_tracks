@@ -4,6 +4,11 @@
   "28LG": { "weight": 20000, "pallets": 18 },
   "48LG": { "weight": 41000, "pallets": 32 },
   "18BT": { "weight": 12000, "pallets": 12 },
+  "20BT": { "weight": 14000, "pallets": 14 },
   "14BAY": { "weight": 12000, "pallets": 12 },
-  "48FT": { "weight": 41000, "pallets": 32 }
+  "10BAY": { "weight": 10000, "pallets": 10 },
+  "16BAY": { "weight": 14000, "pallets": 16 },
+  "4BAY": { "weight": 4000, "pallets": 4 },
+  "48FT": { "weight": 41000, "pallets": 32 },
+  "53FT": { "weight": 45000, "pallets": 34 }
 }
